@@ -1,4 +1,4 @@
-name: Deploy
+name: Deploy to Cloud Run
 
 on:
   push:
@@ -10,48 +10,28 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'src/**'
-      - 'public/**'
-      - 'index.html'
+      - 'Dockerfile'
+      - 'nginx.conf'
   workflow_dispatch:
+
+env:
+  PROJECT_ID: data-feeder-lcd
+  REGION: australia-southeast1
+  AR_REPO: data-feeder-images
+  SERVICE_NAME: data-feeder-api
 
 permissions:
   contents: read
   id-token: write
-  pull-requests: write
 
 jobs:
   build-and-deploy:
-    name: Deploy
+    name: Build & Deploy
     runs-on: ubuntu-latest
     environment: prod
 
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build
-        run: npm run build
-        env:
-          VITE_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-          VITE_FIREBASE_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
-          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
-          VITE_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
 
       - name: Authenticate to Google Cloud (WIF)
         uses: google-github-actions/auth@v2
@@ -59,20 +39,43 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
-      - name: Deploy to Firebase Hosting (preview)
-        if: github.event_name == 'pull_request'
-        run: |
-          npx firebase-tools hosting:channel:deploy pr-${{ github.event.pull_request.number }} \
-            --project ${{ vars.GCP_PROJECT_ID }} \
-            --expires 7d \
-            --json | tee channel_output.json
-          url=$(jq -r '.result | to_entries[0].value.url' channel_output.json)
-          echo "### Firebase Hosting Preview" >> "$GITHUB_STEP_SUMMARY"
-          echo "[${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
 
-      - name: Deploy to Firebase Hosting (live)
-        if: github.event_name != 'pull_request'
+      - name: Authenticate Docker to Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build Docker image
         run: |
-          npx firebase-tools deploy --only hosting \
-            --project ${{ vars.GCP_PROJECT_ID }} \
-            --non-interactive
+          docker build \
+            --build-arg VITE_FIREBASE_API_KEY="${{ secrets.FIREBASE_API_KEY }}" \
+            --build-arg VITE_FIREBASE_AUTH_DOMAIN="${{ secrets.FIREBASE_AUTH_DOMAIN }}" \
+            --build-arg VITE_FIREBASE_PROJECT_ID="${{ env.PROJECT_ID }}" \
+            --build-arg VITE_FIREBASE_STORAGE_BUCKET="${{ secrets.FIREBASE_STORAGE_BUCKET }}" \
+            --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}" \
+            --build-arg VITE_FIREBASE_APP_ID="${{ secrets.FIREBASE_APP_ID }}" \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
+            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest \
+            .
+
+      - name: Push Docker image
+        run: |
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE_NAME }}
+          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
+          region: ${{ env.REGION }}
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Show deployment URL
+        run: |
+          url=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
+            --region ${{ env.REGION }} \
+            --project ${{ env.PROJECT_ID }} \
+            --format 'value(status.url)')
+          echo "### Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
+          echo "Service URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
