@@ -15,7 +15,7 @@ GCP infrastructure is managed with Terraform in the [`platform-infra`](../platfo
 | Styling | Tailwind CSS v3 |
 | Routing | React Router v7 |
 | Server state | TanStack React Query v5 |
-| Auth | Firebase Auth (Google OAuth) |
+| Auth | Google Identity Services (OAuth) |
 | Container | Docker (nginx:1.27-alpine) |
 | Hosting | Google Cloud Run (`australia-southeast1`) |
 | Image registry | Artifact Registry |
@@ -31,13 +31,13 @@ GCP infrastructure is managed with Terraform in the [`platform-infra`](../platfo
 
 The app is a single-page application served as a static bundle. In production it runs inside an nginx container on Cloud Run, which handles SPA routing (all paths fall back to `index.html`) and aggressive asset caching. The container listens on port 8080, matching Cloud Run's default.
 
-Firebase configuration values are injected at Docker build time as `VITE_*` build args, so the compiled JS bundle contains them directly — there is no runtime config server.
+The Google OAuth Client ID is injected at Docker build time as a `VITE_*` build arg, so the compiled JS bundle contains it directly — there is no runtime config server.
 
 ```
 Browser
   └── Cloud Run (nginx, port 8080)
         └── Static bundle (React SPA)
-              ├── Firebase Auth (Google OAuth popup)
+              ├── Google Identity Services (OAuth popup/One Tap)
               └── /api/* → Cloud Run API (backend, separate Cloud Run service)
 ```
 
@@ -46,7 +46,7 @@ Browser
 Files never transit the application server. The browser talks directly to GCS:
 
 ```
-1. Browser  →  POST /api/uploads/init       (Cloud Run API, Firebase auth token)
+1. Browser  →  POST /api/uploads/init       (Cloud Run API, Google ID token)
                   payload: { filename, contentType, fileSize, dataset, bqTable }
                   returns: { uploadId, signedUrl, objectPath, uploadType }
 
@@ -116,6 +116,7 @@ Service: `data-feeder-api-<env>`
 - Prod: min 1 instance (no cold starts); dev/staging: min 0
 - All secrets pulled from Secret Manager at runtime — no plaintext env vars in config
 - Health check: `GET /health` (liveness probe, 30s interval)
+- Custom domain: `datafeeder.lopezcloud.dev` via Cloud Run domain mapping
 
 ### Firestore
 
@@ -158,12 +159,12 @@ GitHub Actions authenticates to GCP without long-lived service account keys:
 
 - WIF pool: `github-pool-<env>`
 - OIDC provider: `https://token.actions.githubusercontent.com`
-- Attribute condition scoped to `lopeztech/data-feeder` repository
+- Attribute condition scoped to `lopeztech/platform-infra` and `lopeztech/data-feeder` repositories
 - `sa-cicd-<env>` granted `iam.workloadIdentityUser` via `principalSet` on the pool
 
 ### Secret Manager
 
-All sensitive runtime config (Firebase credentials, signing keys, etc.) is stored in Secret Manager and mounted into the Cloud Run API container as env vars via `secretKeyRef`. The `sa-upload-api-<env>` service account has `secretmanager.secretAccessor` on these secrets only.
+Runtime config (GCP project ID, signing keys, etc.) is stored in Secret Manager and mounted into the Cloud Run API container as env vars via `secretKeyRef`. The `sa-upload-api-<env>` service account has `secretmanager.secretAccessor` on these secrets only.
 
 ---
 
@@ -174,17 +175,15 @@ All sensitive runtime config (Firebase credentials, signing keys, etc.) is store
 Runs on every PR targeting `main`:
 1. ESLint
 2. Vitest unit tests
-3. Docker build check (no push)
 
-### Deploy to Firebase Hosting (`deploy.yml`)
+### Deploy to Cloud Run (`deploy.yml`)
 
 Triggers on push to `main` (when `src/`, `public/`, or root config files change) or manual `workflow_dispatch`. Always targets the `prod` GitHub Actions environment:
 
-1. Lint + tests
-2. Build — Firebase config injected from GitHub Actions secrets/vars
-3. Authenticate to GCP via WIF (no static keys)
-4. **Pull requests** → Firebase Hosting preview channel (`pr-<number>`, expires 7 days), URL posted to step summary
-5. **Push to main / manual** → deploy to Firebase Hosting live channel
+1. Authenticate to GCP via WIF (no static keys)
+2. Build Docker image — Google OAuth Client ID injected from GitHub Actions secrets
+3. Push image to Artifact Registry
+4. Deploy to Cloud Run
 
 ---
 
@@ -203,8 +202,8 @@ Triggers on push to `main` (when `src/`, `public/`, or root config files change)
 
 Two entry points:
 
-- **Google OAuth** — Firebase `signInWithPopup`. Grants `role: 'google'`; full access to upload and jobs.
-- **Guest** — no Firebase call. Sets a synthetic `GUEST_USER` in `AuthContext` with `role: 'guest'`. Upload controls are disabled; the jobs page renders `MOCK_JOBS` from `src/data/mockJobs.ts`.
+- **Google OAuth** — Google Identity Services `google.accounts.id.prompt()`. Grants `role: 'google'`; full access to upload and jobs. The GIS JWT (ID token) is used as the Bearer token for API calls.
+- **Guest** — no auth call. Sets a synthetic `GUEST_USER` in `AuthContext` with `role: 'guest'`. Upload controls are disabled; the jobs page renders `MOCK_JOBS` from `src/data/mockJobs.ts`.
 
 ---
 
@@ -214,9 +213,8 @@ Two entry points:
 src/
 ├── App.tsx                    Router + provider tree
 ├── context/
-│   └── AuthContext.tsx        Auth state, Google + Guest sign-in/out
+│   └── AuthContext.tsx        Auth state (GIS), Google + Guest sign-in/out, credential store
 ├── lib/
-│   ├── firebase.ts            Firebase app + auth + Google provider init
 │   └── uploadService.ts       initUpload, simpleUploadToGCS, resumableUploadToGCS, getUploadStatus
 ├── pages/
 │   ├── LoginPage.tsx          Login UI (Google + Guest)
@@ -228,7 +226,8 @@ src/
 ├── data/
 │   └── mockJobs.ts            Demo pipeline jobs (used by guests + dev)
 └── types/
-    └── index.ts               AuthUser, PipelineJob, JobStatus, JobStats
+    ├── index.ts               AuthUser, PipelineJob, JobStatus, JobStats
+    └── google-accounts.d.ts   Type declarations for Google Identity Services client
 ```
 
 ---
@@ -236,7 +235,7 @@ src/
 ## Local Development
 
 ```bash
-cp .env.example .env.local   # fill in Firebase values (optional — Guest mode works without them)
+cp .env.example .env.local   # fill in VITE_GOOGLE_CLIENT_ID (optional — Guest mode works without it)
 npm install
 npm run dev                  # http://localhost:5173
 ```
@@ -250,13 +249,8 @@ npm test                     # Vitest (pass-with-no-tests)
 
 ### Environment variables
 
-All `VITE_FIREBASE_*` values are optional locally. Without them, Google sign-in fails but Guest mode works fully.
+`VITE_GOOGLE_CLIENT_ID` is optional locally. Without it, Google sign-in fails but Guest mode works fully.
 
 | Variable | Description |
 |---|---|
-| `VITE_FIREBASE_API_KEY` | Firebase web API key |
-| `VITE_FIREBASE_AUTH_DOMAIN` | Firebase auth domain |
-| `VITE_FIREBASE_PROJECT_ID` | GCP project ID |
-| `VITE_FIREBASE_STORAGE_BUCKET` | Firebase storage bucket |
-| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID |
-| `VITE_FIREBASE_APP_ID` | Firebase app ID |
+| `VITE_GOOGLE_CLIENT_ID` | Google OAuth 2.0 Client ID (from GCP Console > APIs & Services > Credentials) |

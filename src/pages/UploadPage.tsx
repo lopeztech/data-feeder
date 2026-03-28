@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -148,24 +148,20 @@ export default function UploadPage() {
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
 
-  // Sync bqTable with dataset unless the user has manually edited it
-  useEffect(() => {
-    if (!bqTableTouched) setBqTable(dataset);
-  }, [dataset, bqTableTouched]);
-
   // Run schema inference when a new file is selected
-  useEffect(() => {
-    if (!file) { setPreview(null); return; }
+  const handleFileChange = useCallback((newFile: File | null) => {
+    setFile(newFile);
+    if (!newFile) { setPreview(null); setPreviewLoading(false); return; }
     setPreviewLoading(true);
-    inferSchema(file).then(result => {
+    inferSchema(newFile).then(result => {
       setPreview(result);
       setPreviewLoading(false);
     });
-  }, [file]);
+  }, []);
 
   const onDrop = useCallback((accepted: File[]) => {
-    if (accepted.length > 0) setFile(accepted[0]);
-  }, []);
+    if (accepted.length > 0) handleFileChange(accepted[0]);
+  }, [handleFileChange]);
 
   const { getRootProps, getInputProps, isDragActive, fileRejections } = useDropzone({
     onDrop,
@@ -207,7 +203,7 @@ export default function UploadPage() {
   };
 
   const handleReset = () => {
-    setFile(null); setDataset(''); setDescription(''); setBqTable('');
+    handleFileChange(null); setDataset(''); setDescription(''); setBqTable('');
     setBqTableTouched(false); setSchemaFile(null); setPreview(null);
     setProgress(null); setUploadError(null); setUploadId(null); setSubmitted(false);
   };
@@ -288,7 +284,7 @@ export default function UploadPage() {
               </p>
               <button
                 type="button"
-                onClick={(e) => { e.stopPropagation(); setFile(null); }}
+                onClick={(e) => { e.stopPropagation(); handleFileChange(null); }}
                 className="text-xs text-red-500 hover:text-red-700 mt-1"
               >
                 Remove
@@ -393,7 +389,7 @@ export default function UploadPage() {
               <input
                 type="text"
                 value={dataset}
-                onChange={e => setDataset(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
+                onChange={e => { const v = e.target.value.toLowerCase().replace(/\s+/g, '_'); setDataset(v); if (!bqTableTouched) setBqTable(v); }}
                 placeholder="e.g. sales_orders"
                 disabled={isGuest}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-40"

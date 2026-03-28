@@ -13,18 +13,18 @@ npm run preview    # Preview production build locally
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and fill in Firebase values. Without them the app still runs — Google sign-in will fail but Guest mode works fully.
+Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully.
 
 ## Architecture
 
-React 18 + Vite + TypeScript SPA. Tailwind CSS v3 for styling. React Router v7 for routing. Firebase for auth. React Query for server state.
+React 18 + Vite + TypeScript SPA. Tailwind CSS v3 for styling. React Router v7 for routing. Google Identity Services (GIS) for auth. React Query for server state.
 
 ### Auth model
 Two entry points on the login page:
-- **Google OAuth** — Firebase `signInWithPopup`. On success, user gets `role: 'google'` and full access (upload + jobs).
-- **Guest** — no Firebase call; sets a synthetic `GUEST_USER` in `AuthContext` with `role: 'guest'`. All upload controls are disabled; jobs page shows `MOCK_JOBS` from `src/data/mockJobs.ts`.
+- **Google OAuth** — Google Identity Services `google.accounts.id.prompt()`. On success, user gets `role: 'google'` and full access (upload + jobs). The GIS JWT (ID token) is used as the Bearer token for API calls.
+- **Guest** — no auth call; sets a synthetic `GUEST_USER` in `AuthContext` with `role: 'guest'`. All upload controls are disabled; jobs page shows `MOCK_JOBS` from `src/data/mockJobs.ts`.
 
-`AuthContext` (`src/context/AuthContext.tsx`) exposes `user`, `signInWithGoogle`, `signInAsGuest`, `signOutUser`. Check `user.role === 'guest'` to gate features.
+`AuthContext` (`src/context/AuthContext.tsx`) exposes `user`, `signInWithGoogle`, `signInAsGuest`, `signOutUser`. Check `user.role === 'guest'` to gate features. `getGoogleCredential()` is exported for retrieving the current ID token.
 
 ### Route structure
 ```
@@ -49,8 +49,8 @@ The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev or
 ### Key files
 | File | Purpose |
 |---|---|
-| `src/context/AuthContext.tsx` | Auth state, Google + Guest sign-in/out |
-| `src/lib/firebase.ts` | Firebase app + auth + Google provider init |
+| `src/context/AuthContext.tsx` | Auth state (GIS), Google + Guest sign-in/out, credential store |
+| `src/types/google-accounts.d.ts` | Type declarations for the Google Identity Services client |
 | `src/data/mockJobs.ts` | Demo pipeline jobs (used by guests + dev) |
 | `src/types/index.ts` | Shared types: `AuthUser`, `PipelineJob`, `JobStatus` |
 | `src/pages/LoginPage.tsx` | Login UI with Google and Guest options |

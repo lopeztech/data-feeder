@@ -1,4 +1,4 @@
-import { auth } from './firebase';
+import { getGoogleCredential } from '../context/AuthContext';
 
 export const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB per chunk
@@ -19,12 +19,12 @@ export interface InitUploadResponse {
   uploadType: 'simple' | 'resumable';
 }
 
-async function getAuthToken(): Promise<string | null> {
-  return auth?.currentUser?.getIdToken() ?? null;
+function getAuthToken(): string | null {
+  return getGoogleCredential();
 }
 
 export async function initUpload(req: InitUploadRequest): Promise<InitUploadResponse> {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -42,7 +42,7 @@ export async function initUpload(req: InitUploadRequest): Promise<InitUploadResp
 }
 
 export async function getUploadStatus(uploadId: string): Promise<unknown> {
-  const token = await getAuthToken();
+  const token = getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 

@@ -1,14 +1,12 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
-import { auth, googleProvider } from '../lib/firebase';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { AuthUser } from '../types';
 
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => void;
   signInAsGuest: () => void;
-  signOutUser: () => Promise<void>;
+  signOutUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -21,51 +19,87 @@ const GUEST_USER: AuthUser = {
   role: 'guest',
 };
 
+const CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+interface GoogleCredentialResponse {
+  credential: string;
+}
+
+function parseJwt(token: string): Record<string, string> {
+  const base64Url = token.split('.')[1];
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const json = decodeURIComponent(
+    atob(base64)
+      .split('')
+      .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+      .join(''),
+  );
+  return JSON.parse(json);
+}
+
+// Store the credential so uploadService can retrieve it
+let _credential: string | null = null;
+export function getGoogleCredential(): string | null {
+  return _credential;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !!CLIENT_ID);
 
-  useEffect(() => {
-    if (!auth) {
-      setLoading(false);
-      return;
-    }
-
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser: User | null) => {
-      if (firebaseUser) {
-        setUser({
-          uid: firebaseUser.uid,
-          email: firebaseUser.email,
-          displayName: firebaseUser.displayName,
-          photoURL: firebaseUser.photoURL,
-          role: 'google',
-        });
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
+  const handleCredentialResponse = useCallback((response: GoogleCredentialResponse) => {
+    const payload = parseJwt(response.credential);
+    _credential = response.credential;
+    setUser({
+      uid: payload.sub,
+      email: payload.email ?? null,
+      displayName: payload.name ?? null,
+      photoURL: payload.picture ?? null,
+      role: 'google',
     });
-    return unsubscribe;
+    setLoading(false);
   }, []);
 
-  const signInWithGoogle = async () => {
-    if (!auth) throw new Error('Firebase is not configured.');
-    await signInWithPopup(auth, googleProvider);
-  };
+  useEffect(() => {
+    if (!CLIENT_ID) return;
 
-  const signInAsGuest = () => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => {
+      window.google.accounts.id.initialize({
+        client_id: CLIENT_ID,
+        callback: handleCredentialResponse,
+        auto_select: true,
+      });
+      setLoading(false);
+    };
+    script.onerror = () => setLoading(false);
+    document.head.appendChild(script);
+
+    return () => {
+      document.head.removeChild(script);
+    };
+  }, [handleCredentialResponse]);
+
+  const signInWithGoogle = useCallback(() => {
+    if (!CLIENT_ID) throw new Error('Google Client ID is not configured.');
+    window.google.accounts.id.prompt();
+  }, []);
+
+  const signInAsGuest = useCallback(() => {
+    _credential = null;
     setUser(GUEST_USER);
     setLoading(false);
-  };
+  }, []);
 
-  const signOutUser = async () => {
-    if (user?.role === 'guest') {
-      setUser(null);
-    } else {
-      if (auth) await signOut(auth);
-      setUser(null);
+  const signOutUser = useCallback(() => {
+    if (CLIENT_ID && window.google?.accounts?.id) {
+      window.google.accounts.id.disableAutoSelect();
     }
-  };
+    _credential = null;
+    setUser(null);
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInAsGuest, signOutUser }}>

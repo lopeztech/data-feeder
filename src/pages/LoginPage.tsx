@@ -15,7 +15,7 @@ export default function LoginPage() {
       await signInWithGoogle();
       navigate('/upload');
     } catch {
-      setError('Google sign-in failed. Check your Firebase config or try Guest mode.');
+      setError('Google sign-in failed. Check your OAuth Client ID or try Guest mode.');
     } finally {
       setLoading(false);
     }
