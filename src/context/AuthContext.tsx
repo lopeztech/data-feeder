@@ -4,9 +4,10 @@ import { AuthUser } from '../types';
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  signInWithGoogle: () => void;
+  gsiReady: boolean;
   signInAsGuest: () => void;
   signOutUser: () => void;
+  renderGoogleButton: (element: HTMLElement) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -46,6 +47,7 @@ export function getGoogleCredential(): string | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(() => !!CLIENT_ID);
+  const [gsiReady, setGsiReady] = useState(false);
 
   const handleCredentialResponse = useCallback((response: GoogleCredentialResponse) => {
     const payload = parseJwt(response.credential);
@@ -72,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         callback: handleCredentialResponse,
         auto_select: true,
       });
+      setGsiReady(true);
       setLoading(false);
     };
     script.onerror = () => setLoading(false);
@@ -82,10 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [handleCredentialResponse]);
 
-  const signInWithGoogle = useCallback(() => {
-    if (!CLIENT_ID) throw new Error('Google Client ID is not configured.');
-    window.google.accounts.id.prompt();
-  }, []);
+  const renderGoogleButton = useCallback((element: HTMLElement) => {
+    if (!gsiReady) return;
+    window.google.accounts.id.renderButton(element, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'large',
+      width: element.offsetWidth,
+      text: 'signin_with',
+    });
+  }, [gsiReady]);
 
   const signInAsGuest = useCallback(() => {
     _credential = null;
@@ -102,7 +111,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, signInWithGoogle, signInAsGuest, signOutUser }}>
+    <AuthContext.Provider value={{ user, loading, gsiReady, signInAsGuest, signOutUser, renderGoogleButton }}>
       {children}
     </AuthContext.Provider>
   );
