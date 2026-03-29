@@ -154,10 +154,10 @@ export default function JobsPage() {
   const filtered = filter === 'ALL' ? jobs : jobs.filter((j) => j.status === filter);
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Pipeline Jobs</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Pipeline Jobs</h1>
           <p className="text-gray-500 mt-1 text-sm">
             {user?.role === 'guest' ? 'Viewing demo data — sign in to see live jobs.' : 'Real-time pipeline status.'}
           </p>
@@ -186,8 +186,36 @@ export default function JobsPage() {
         ))}
       </div>
 
-      {/* Jobs table */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      {/* Mobile card list */}
+      <div className="md:hidden space-y-3">
+        {filtered.map((job) => (
+          <div
+            key={job.job_id}
+            onClick={() => setSelected(job)}
+            className="bg-white border border-gray-200 rounded-xl p-4 active:bg-gray-50 cursor-pointer transition"
+          >
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-gray-900 truncate">{job.filename}</p>
+                <p className="text-xs text-gray-400">{job.dataset} · {formatBytes(job.file_size_bytes)}</p>
+              </div>
+              <StatusBadge status={job.status} />
+            </div>
+            <div className="flex items-center justify-between text-xs text-gray-400">
+              <span>{job.stats.total_records > 0 ? `${job.stats.total_records.toLocaleString()} records` : 'No records'}</span>
+              <span>{formatDate(job.created_at)}</span>
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && (
+          <div className="bg-white border border-gray-200 rounded-xl px-4 py-12 text-center text-gray-400 text-sm">
+            No jobs match the selected filter.
+          </div>
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden md:block bg-white border border-gray-200 rounded-xl overflow-hidden">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
