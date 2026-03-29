@@ -39,26 +39,50 @@ function parseJwt(token: string): Record<string, string> {
 }
 
 // Store the credential so uploadService can retrieve it
-let _credential: string | null = null;
+let _credential: string | null = sessionStorage.getItem('gis_credential');
 export function getGoogleCredential(): string | null {
   return _credential;
 }
 
+function loadPersistedUser(): AuthUser | null {
+  try {
+    const stored = sessionStorage.getItem('auth_user');
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistAuth(user: AuthUser | null, credential: string | null) {
+  if (user) {
+    sessionStorage.setItem('auth_user', JSON.stringify(user));
+  } else {
+    sessionStorage.removeItem('auth_user');
+  }
+  if (credential) {
+    sessionStorage.setItem('gis_credential', credential);
+  } else {
+    sessionStorage.removeItem('gis_credential');
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<AuthUser | null>(null);
-  const [loading, setLoading] = useState(() => !!CLIENT_ID);
+  const [user, setUser] = useState<AuthUser | null>(loadPersistedUser);
+  const [loading, setLoading] = useState(() => !loadPersistedUser() && !!CLIENT_ID);
   const [gsiReady, setGsiReady] = useState(false);
 
   const handleCredentialResponse = useCallback((response: GoogleCredentialResponse) => {
     const payload = parseJwt(response.credential);
     _credential = response.credential;
-    setUser({
+    const newUser: AuthUser = {
       uid: payload.sub,
       email: payload.email ?? null,
       displayName: payload.name ?? null,
       photoURL: payload.picture ?? null,
       role: 'google',
-    });
+    };
+    persistAuth(newUser, response.credential);
+    setUser(newUser);
     setLoading(false);
   }, []);
 
@@ -98,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInAsGuest = useCallback(() => {
     _credential = null;
+    persistAuth(GUEST_USER, null);
     setUser(GUEST_USER);
     setLoading(false);
   }, []);
@@ -107,6 +132,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.google.accounts.id.disableAutoSelect();
     }
     _credential = null;
+    persistAuth(null, null);
     setUser(null);
   }, []);
 
