@@ -12,7 +12,8 @@
     "@google-cloud/functions-framework": "^3.4.5",
     "@google-cloud/pubsub": "^4.11.0",
     "@google-cloud/storage": "^7.19.0",
-    "csv-parse": "^5.6.0"
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.7.0"
   },
   "devDependencies": {
     "typescript": "~5.8.3"

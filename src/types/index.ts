@@ -37,4 +37,5 @@ export interface PipelineJob {
   bq_table: string | null;
   stats: JobStats;
   error: string | null;
+  pii_masked?: { column: string; type: string }[];
 }
