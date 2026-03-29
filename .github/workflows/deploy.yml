@@ -83,29 +83,106 @@ jobs:
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
             --format 'value(status.url)')
+          fn_url="${{ steps.fn-url.outputs.url }}"
+          passed=0
+          failed=0
 
-          echo "Testing ${url}..."
+          check() {
+            local name="$1" result="$2"
+            if [ "$result" = "true" ]; then
+              echo "✅ $name"
+              passed=$((passed + 1))
+            else
+              echo "❌ $name"
+              failed=$((failed + 1))
+            fi
+          }
 
-          # Verify the service returns the SPA, not the Cloud Run placeholder
+          echo "=== SPA Smoke Tests ==="
+          echo "URL: ${url}"
+          echo ""
+
+          # 1. SPA serves correctly (not Cloud Run placeholder)
           body=$(curl -s --max-time 30 "${url}")
+          echo "$body" | grep -q "Data Feeder"
+          check "SPA serves Data Feeder (not placeholder)" "$([ $? -eq 0 ] && echo true || echo false)"
 
-          if echo "$body" | grep -q "Data Feeder"; then
-            echo "✅ SPA is serving correctly"
-          else
-            echo "❌ SPA not detected — got placeholder or unexpected content:"
-            echo "$body" | head -5
-            exit 1
-          fi
-
-          # Verify health endpoint
+          # 2. Health endpoint
           status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}/health")
-          if [ "$status" = "200" ]; then
-            echo "✅ Health check passed"
+          check "Health endpoint returns 200" "$([ "$status" = "200" ] && echo true || echo false)"
+
+          # 3. Static assets load (CSS and JS bundles)
+          css_url=$(echo "$body" | grep -oP 'href="/assets/[^"]+\.css"' | head -1 | grep -oP '/assets/[^"]+')
+          if [ -n "$css_url" ]; then
+            css_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}${css_url}")
+            check "CSS bundle loads (${css_url})" "$([ "$css_status" = "200" ] && echo true || echo false)"
           else
-            echo "❌ Health check failed with status ${status}"
-            exit 1
+            check "CSS bundle found in HTML" "false"
           fi
 
-          echo "### Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
+          js_url=$(echo "$body" | grep -oP 'src="/assets/[^"]+\.js"' | head -1 | grep -oP '/assets/[^"]+')
+          if [ -n "$js_url" ]; then
+            js_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}${js_url}")
+            check "JS bundle loads (${js_url})" "$([ "$js_status" = "200" ] && echo true || echo false)"
+          else
+            check "JS bundle found in HTML" "false"
+          fi
+
+          # 4. SPA routing fallback (non-existent path returns index.html)
+          fallback_body=$(curl -s --max-time 10 "${url}/some/random/path")
+          echo "$fallback_body" | grep -q "Data Feeder"
+          check "SPA fallback routing works" "$([ $? -eq 0 ] && echo true || echo false)"
+
+          # 5. Favicon loads
+          favicon_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}/favicon.svg")
+          check "Favicon loads" "$([ "$favicon_status" = "200" ] && echo true || echo false)"
+
+          # 6. Cache headers on static assets
+          if [ -n "$css_url" ]; then
+            cache_header=$(curl -s -I --max-time 10 "${url}${css_url}" | grep -i "cache-control" | head -1)
+            echo "$cache_header" | grep -qi "immutable"
+            check "Static assets have immutable cache header" "$([ $? -eq 0 ] && echo true || echo false)"
+          fi
+
+          # 7. index.html has no-cache
+          index_cache=$(curl -s -I --max-time 10 "${url}/" | grep -i "cache-control" | head -1)
+          echo "$index_cache" | grep -qi "no-cache"
+          check "index.html has no-cache header" "$([ $? -eq 0 ] && echo true || echo false)"
+
+          echo ""
+          echo "=== Upload API Smoke Tests ==="
+          echo "URL: ${fn_url}"
+          echo ""
+
+          # 8. Upload API health (GET /jobs returns JSON array)
+          if [ -n "$fn_url" ]; then
+            jobs_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "${fn_url}/jobs")
+            check "Upload API /jobs returns 200" "$([ "$jobs_status" = "200" ] && echo true || echo false)"
+
+            jobs_body=$(curl -s --max-time 15 "${fn_url}/jobs")
+            echo "$jobs_body" | head -c 1 | grep -q '['
+            check "Upload API /jobs returns JSON array" "$([ $? -eq 0 ] && echo true || echo false)"
+
+            # 9. Upload API CORS headers
+            cors_header=$(curl -s -I -X OPTIONS -H "Origin: https://datafeeder.lopezcloud.dev" -H "Access-Control-Request-Method: GET" --max-time 10 "${fn_url}/jobs" | grep -i "access-control-allow-origin" | head -1)
+            echo "$cors_header" | grep -q "datafeeder.lopezcloud.dev"
+            check "Upload API CORS allows datafeeder.lopezcloud.dev" "$([ $? -eq 0 ] && echo true || echo false)"
+
+            # 10. Upload API 404 for unknown routes
+            notfound_status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${fn_url}/nonexistent")
+            check "Upload API returns 404 for unknown routes" "$([ "$notfound_status" = "404" ] && echo true || echo false)"
+          else
+            check "Upload API URL resolved" "false"
+          fi
+
+          echo ""
+          echo "=== Results: ${passed} passed, ${failed} failed ==="
+
+          # Write summary
+          echo "### Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
           echo "Service URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
-          echo "Smoke test: ✅ SPA verified, health check passed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Results: **${passed} passed**, **${failed} failed**" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$failed" -gt 0 ]; then
+            exit 1
+          fi
