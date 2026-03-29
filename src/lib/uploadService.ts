@@ -1,4 +1,5 @@
 import { getGoogleCredential } from '../context/AuthContext';
+import { PipelineJob } from '../types';
 
 export const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB per chunk
@@ -40,6 +41,16 @@ export async function initUpload(req: InitUploadRequest): Promise<InitUploadResp
     throw new Error(`Upload init failed (${res.status}): ${text}`);
   }
   return res.json() as Promise<InitUploadResponse>;
+}
+
+export async function listJobs(): Promise<PipelineJob[]> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/jobs`, { headers });
+  if (!res.ok) throw new Error(`List jobs failed (${res.status})`);
+  return res.json() as Promise<PipelineJob[]>;
 }
 
 export async function getUploadStatus(uploadId: string): Promise<unknown> {

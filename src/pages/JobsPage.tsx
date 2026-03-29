@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
+import { listJobs } from '../lib/uploadService';
 import { PipelineJob, JobStatus } from '../types';
 
 const STATUS_STYLES: Record<JobStatus, { bg: string; text: string; dot: string; label: string }> = {
@@ -147,9 +148,25 @@ export default function JobsPage() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<JobStatus | 'ALL'>('ALL');
   const [selected, setSelected] = useState<PipelineJob | null>(null);
+  const [liveJobs, setLiveJobs] = useState<PipelineJob[]>([]);
+  const [loading, setLoading] = useState(false);
+  const isGuest = user?.role === 'guest';
 
-  // Guests always see mock data; authenticated users would call the real API
-  const jobs = MOCK_JOBS;
+  const fetchJobs = useCallback(async () => {
+    if (isGuest) return;
+    setLoading(true);
+    try {
+      setLiveJobs(await listJobs());
+    } catch (err) {
+      console.error('Failed to fetch jobs:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [isGuest]);
+
+  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+
+  const jobs = isGuest ? MOCK_JOBS : liveJobs;
 
   const filtered = filter === 'ALL' ? jobs : jobs.filter((j) => j.status === filter);
 
@@ -162,11 +179,25 @@ export default function JobsPage() {
             {user?.role === 'guest' ? 'Viewing demo data — sign in to see live jobs.' : 'Real-time pipeline status.'}
           </p>
         </div>
-        {user?.role === 'guest' && (
-          <span className="text-xs px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full font-medium">
-            Demo data
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {!isGuest && (
+            <button
+              onClick={fetchJobs}
+              disabled={loading}
+              className="p-1.5 hover:bg-gray-100 rounded-lg transition disabled:opacity-40"
+              title="Refresh"
+            >
+              <svg className={`w-4 h-4 text-gray-500 ${loading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
+          {isGuest && (
+            <span className="text-xs px-3 py-1.5 bg-amber-100 text-amber-700 rounded-full font-medium">
+              Demo data
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Status filter */}

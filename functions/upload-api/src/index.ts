@@ -61,6 +61,12 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /jobs
+  if (req.method === 'GET' && req.path === '/jobs') {
+    handleListJobs(res);
+    return;
+  }
+
   // Route: GET /:uploadId/status
   const statusMatch = req.path.match(/^\/([a-f0-9-]+)\/status$/);
   if (req.method === 'GET' && statusMatch) {
@@ -163,5 +169,22 @@ async function handleStatus(
   } catch (err) {
     console.error('Status fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch job status' });
+  }
+}
+
+async function handleListJobs(
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const snapshot = await firestore
+      .collection('jobs')
+      .orderBy('created_at', 'desc')
+      .limit(100)
+      .get();
+    const jobs = snapshot.docs.map(doc => doc.data());
+    res.status(200).json(jobs);
+  } catch (err) {
+    console.error('List jobs error:', err);
+    res.status(500).json({ error: 'Failed to list jobs' });
   }
 }
