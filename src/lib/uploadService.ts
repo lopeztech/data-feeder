@@ -68,6 +68,37 @@ export async function retriggerJob(jobId: string): Promise<void> {
   }
 }
 
+export interface StagePreview {
+  bronze: Record<string, unknown>[] | null;
+  silver: Record<string, unknown>[] | null;
+  curated: Record<string, unknown>[] | null;
+}
+
+export async function fetchPreview(jobId: string): Promise<StagePreview> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(jobId)}/preview`, { headers });
+  if (!res.ok) throw new Error(`Preview fetch failed (${res.status})`);
+  return res.json() as Promise<StagePreview>;
+}
+
+export async function deleteJob(jobId: string): Promise<void> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+    headers,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(body.error || `Delete failed (${res.status})`);
+  }
+}
+
 export async function getUploadStatus(uploadId: string): Promise<unknown> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};

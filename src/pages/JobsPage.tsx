@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
-import { listJobs, retriggerJob } from '../lib/uploadService';
+import { listJobs, retriggerJob, fetchPreview, deleteJob } from '../lib/uploadService';
+import type { StagePreview } from '../lib/uploadService';
 import { PipelineJob, JobStatus } from '../types';
 
 const STATUS_STYLES: Record<JobStatus, { bg: string; text: string; dot: string; label: string }> = {
@@ -38,15 +39,72 @@ function StatusBadge({ status }: { status: JobStatus }) {
 
 const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
 
-function JobDetail({ job, onClose, onRetrigger }: { job: PipelineJob; onClose: () => void; onRetrigger?: (jobId: string) => void }) {
+type PreviewTab = 'details' | 'bronze' | 'silver' | 'curated';
+
+function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
+  if (rows.length === 0) return <p className="text-xs text-gray-400 p-3">No data</p>;
+  const columns = Object.keys(rows[0]);
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full text-xs">
+        <thead>
+          <tr className="bg-gray-50">
+            {columns.map(col => (
+              <th key={col} className="px-3 py-2 text-left font-medium text-gray-600 whitespace-nowrap border-b border-gray-200">{col}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+              {columns.map(col => (
+                <td key={col} className="px-3 py-1.5 text-gray-700 whitespace-nowrap max-w-[200px] truncate border-b border-gray-100">
+                  {String(row[col] ?? '')}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function JobDetail({ job, onClose, onRetrigger, onDelete }: {
+  job: PipelineJob;
+  onClose: () => void;
+  onRetrigger?: (jobId: string) => void;
+  onDelete?: (jobId: string) => void;
+}) {
+  const [tab, setTab] = useState<PreviewTab>('details');
+  const [preview, setPreview] = useState<StagePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+
   const completionPct = job.stats.total_records > 0
     ? Math.round((job.stats.loaded / job.stats.total_records) * 100)
     : 0;
   const canRetrigger = RETRIGGERABLE.includes(job.status) && !!onRetrigger;
 
+  useEffect(() => {
+    if (tab !== 'details' && !preview && !previewLoading) {
+      setPreviewLoading(true);
+      fetchPreview(job.job_id)
+        .then(setPreview)
+        .catch(() => setPreview({ bronze: null, silver: null, curated: null }))
+        .finally(() => setPreviewLoading(false));
+    }
+  }, [tab, preview, previewLoading, job.job_id]);
+
+  const tabs: { key: PreviewTab; label: string; available: boolean }[] = [
+    { key: 'details', label: 'Details', available: true },
+    { key: 'bronze', label: 'Bronze', available: !!job.bronze_path },
+    { key: 'silver', label: 'Silver', available: !!job.silver_path },
+    { key: 'curated', label: 'Curated', available: job.status === 'LOADED' },
+  ];
+
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
           <div>
             <h2 className="font-semibold text-gray-900">{job.filename}</h2>
@@ -62,95 +120,148 @@ function JobDetail({ job, onClose, onRetrigger }: { job: PipelineJob; onClose: (
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          {/* Pipeline stages */}
-          <div>
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Pipeline stages</p>
-            <div className="space-y-3">
-              {[
-                { label: 'Bronze (Raw)', path: job.bronze_path, done: !!job.bronze_path, color: 'orange' },
-                { label: 'Silver (Validated)', path: job.silver_path, done: !!job.silver_path, color: 'blue' },
-                { label: 'Gold (Curated)', path: job.bq_table ? `BigQuery → ${job.bq_table}` : null, done: !!job.bq_table, color: 'green' },
-              ].map(({ label, path, done, color }) => (
-                <div key={label} className="flex items-start gap-3">
-                  <div className={`mt-0.5 w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
-                    done ? `bg-${color}-100` : 'bg-gray-100'
-                  }`}>
-                    {done ? (
-                      <svg className={`w-3 h-3 text-${color}-600`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (
-                      <div className="w-2 h-2 rounded-full bg-gray-300" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-700">{label}</p>
-                    {path && (
-                      <p className="text-xs text-gray-400 font-mono truncate mt-0.5">{path}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {/* Tabs */}
+        <div className="flex gap-1 px-6 pt-4 border-b border-gray-100">
+          {tabs.filter(t => t.available).map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`px-3 py-2 text-xs font-medium rounded-t-lg transition ${
+                tab === t.key
+                  ? 'bg-white text-brand-700 border border-gray-200 border-b-white -mb-px'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-          {/* Stats */}
-          {job.stats.total_records > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Record stats</p>
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: 'Total', value: job.stats.total_records.toLocaleString(), color: 'text-gray-900' },
-                  { label: 'Valid', value: job.stats.valid.toLocaleString(), color: 'text-green-700' },
-                  { label: 'Rejected', value: job.stats.rejected.toLocaleString(), color: 'text-orange-600' },
-                  { label: 'Loaded', value: job.stats.loaded.toLocaleString(), color: 'text-blue-700' },
-                ].map(({ label, value, color }) => (
-                  <div key={label} className="bg-gray-50 rounded-lg p-3">
-                    <p className="text-xs text-gray-400">{label}</p>
-                    <p className={`text-lg font-semibold ${color} mt-0.5`}>{value}</p>
-                  </div>
-                ))}
-              </div>
-              {job.status === 'LOADED' && (
-                <div className="mt-3">
-                  <div className="flex justify-between text-xs text-gray-500 mb-1">
-                    <span>Success rate</span>
-                    <span>{completionPct}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5">
-                    <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${completionPct}%` }} />
-                  </div>
+        <div className="p-6">
+          {/* Details tab */}
+          {tab === 'details' && (
+            <div className="space-y-6">
+              {/* Pipeline stages */}
+              <div>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Pipeline stages</p>
+                <div className="space-y-3">
+                  {[
+                    { label: 'Bronze (Raw)', path: job.bronze_path, done: !!job.bronze_path, color: 'orange' },
+                    { label: 'Silver (Validated)', path: job.silver_path, done: !!job.silver_path, color: 'blue' },
+                    { label: 'Gold (Curated)', path: job.bq_table ? `BigQuery → ${job.bq_table}` : null, done: !!job.bq_table, color: 'green' },
+                  ].map(({ label, path, done, color }) => (
+                    <div key={label} className="flex items-start gap-3">
+                      <div className={`mt-0.5 w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
+                        done ? `bg-${color}-100` : 'bg-gray-100'
+                      }`}>
+                        {done ? (
+                          <svg className={`w-3 h-3 text-${color}-600`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        ) : (
+                          <div className="w-2 h-2 rounded-full bg-gray-300" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-700">{label}</p>
+                        {path && <p className="text-xs text-gray-400 font-mono truncate mt-0.5">{path}</p>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
+              </div>
+
+              {/* Stats */}
+              {job.stats.total_records > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Record stats</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'Total', value: job.stats.total_records.toLocaleString(), color: 'text-gray-900' },
+                      { label: 'Valid', value: job.stats.valid.toLocaleString(), color: 'text-green-700' },
+                      { label: 'Rejected', value: job.stats.rejected.toLocaleString(), color: 'text-orange-600' },
+                      { label: 'Loaded', value: job.stats.loaded.toLocaleString(), color: 'text-blue-700' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-lg p-3">
+                        <p className="text-xs text-gray-400">{label}</p>
+                        <p className={`text-lg font-semibold ${color} mt-0.5`}>{value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {job.status === 'LOADED' && (
+                    <div className="mt-3">
+                      <div className="flex justify-between text-xs text-gray-500 mb-1">
+                        <span>Success rate</span>
+                        <span>{completionPct}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-1.5">
+                        <div className="bg-green-500 h-1.5 rounded-full" style={{ width: `${completionPct}%` }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Error */}
+              {job.error && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <p className="text-xs font-semibold text-red-700 mb-1">Error</p>
+                  <p className="text-sm text-red-600">{job.error}</p>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-3">
+                {canRetrigger && (
+                  <button
+                    onClick={() => onRetrigger(job.job_id)}
+                    className="flex-1 py-2.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition"
+                  >
+                    Re-trigger validation
+                  </button>
+                )}
+                {onDelete && (
+                  <button
+                    onClick={() => { if (confirm('Delete this job?')) onDelete(job.job_id); }}
+                    className="px-4 py-2.5 text-red-600 border border-red-200 rounded-lg text-sm font-medium hover:bg-red-50 transition"
+                  >
+                    Delete
+                  </button>
+                )}
+              </div>
+
+              {/* Metadata */}
+              <div className="text-xs text-gray-400 space-y-1 border-t border-gray-100 pt-4">
+                <p>Uploaded by: <span className="text-gray-600">{job.uploaded_by}</span></p>
+                <p>Started: <span className="text-gray-600">{formatDate(job.created_at)}</span></p>
+                <p>Last updated: <span className="text-gray-600">{formatDate(job.updated_at)}</span></p>
+                <p>File size: <span className="text-gray-600">{formatBytes(job.file_size_bytes)}</span></p>
+              </div>
+            </div>
+          )}
+
+          {/* Data preview tabs */}
+          {tab !== 'details' && (
+            <div className="border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-4 py-2 bg-gray-50 border-b border-gray-200">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {tab === 'bronze' && 'Bronze — Raw upload (first 10 rows)'}
+                  {tab === 'silver' && 'Silver — Validated data (first 10 rows)'}
+                  {tab === 'curated' && 'Curated — BigQuery table (first 10 rows)'}
+                </p>
+              </div>
+              {previewLoading && (
+                <div className="flex items-center justify-center py-8">
+                  <div className="w-5 h-5 border-2 border-brand-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+              {!previewLoading && preview && (
+                preview[tab] && preview[tab]!.length > 0
+                  ? <DataTable rows={preview[tab]!} />
+                  : <p className="text-xs text-gray-400 p-4">No data available for this stage.</p>
               )}
             </div>
           )}
-
-          {/* Error */}
-          {job.error && (
-            <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-              <p className="text-xs font-semibold text-red-700 mb-1">Error</p>
-              <p className="text-sm text-red-600">{job.error}</p>
-            </div>
-          )}
-
-          {/* Retrigger */}
-          {canRetrigger && (
-            <button
-              onClick={() => onRetrigger(job.job_id)}
-              className="w-full py-2.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition"
-            >
-              Re-trigger validation
-            </button>
-          )}
-
-          {/* Metadata */}
-          <div className="text-xs text-gray-400 space-y-1 border-t border-gray-100 pt-4">
-            <p>Uploaded by: <span className="text-gray-600">{job.uploaded_by}</span></p>
-            <p>Started: <span className="text-gray-600">{formatDate(job.created_at)}</span></p>
-            <p>Last updated: <span className="text-gray-600">{formatDate(job.updated_at)}</span></p>
-            <p>File size: <span className="text-gray-600">{formatBytes(job.file_size_bytes)}</span></p>
-          </div>
         </div>
       </div>
     </div>
@@ -184,6 +295,17 @@ export default function JobsPage() {
     } catch (err) {
       console.error('Retrigger failed:', err);
       alert(err instanceof Error ? err.message : 'Retrigger failed');
+    }
+  }, [fetchJobs]);
+
+  const handleDelete = useCallback(async (jobId: string) => {
+    try {
+      await deleteJob(jobId);
+      setSelected(null);
+      fetchJobs();
+    } catch (err) {
+      console.error('Delete failed:', err);
+      alert(err instanceof Error ? err.message : 'Delete failed');
     }
   }, [fetchJobs]);
 
@@ -314,7 +436,7 @@ export default function JobsPage() {
         </table>
       </div>
 
-      {selected && <JobDetail job={selected} onClose={() => setSelected(null)} onRetrigger={isGuest ? undefined : handleRetrigger} />}
+      {selected && <JobDetail job={selected} onClose={() => setSelected(null)} onRetrigger={isGuest ? undefined : handleRetrigger} onDelete={isGuest ? undefined : handleDelete} />}
     </div>
   );
 }
