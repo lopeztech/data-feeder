@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
-import { listJobs } from '../lib/uploadService';
+import { listJobs, retriggerJob } from '../lib/uploadService';
 import { PipelineJob, JobStatus } from '../types';
 
 const STATUS_STYLES: Record<JobStatus, { bg: string; text: string; dot: string; label: string }> = {
@@ -36,10 +36,13 @@ function StatusBadge({ status }: { status: JobStatus }) {
   );
 }
 
-function JobDetail({ job, onClose }: { job: PipelineJob; onClose: () => void }) {
+const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED'];
+
+function JobDetail({ job, onClose, onRetrigger }: { job: PipelineJob; onClose: () => void; onRetrigger?: (jobId: string) => void }) {
   const completionPct = job.stats.total_records > 0
     ? Math.round((job.stats.loaded / job.stats.total_records) * 100)
     : 0;
+  const canRetrigger = RETRIGGERABLE.includes(job.status) && !!onRetrigger;
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -131,6 +134,16 @@ function JobDetail({ job, onClose }: { job: PipelineJob; onClose: () => void }) 
             </div>
           )}
 
+          {/* Retrigger */}
+          {canRetrigger && (
+            <button
+              onClick={() => onRetrigger(job.job_id)}
+              className="w-full py-2.5 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition"
+            >
+              Re-trigger validation
+            </button>
+          )}
+
           {/* Metadata */}
           <div className="text-xs text-gray-400 space-y-1 border-t border-gray-100 pt-4">
             <p>Uploaded by: <span className="text-gray-600">{job.uploaded_by}</span></p>
@@ -162,6 +175,17 @@ export default function JobsPage() {
       setLoading(false);
     }
   }, []);
+
+  const handleRetrigger = useCallback(async (jobId: string) => {
+    try {
+      await retriggerJob(jobId);
+      setSelected(null);
+      setTimeout(() => fetchJobs(), 1500);
+    } catch (err) {
+      console.error('Retrigger failed:', err);
+      alert(err instanceof Error ? err.message : 'Retrigger failed');
+    }
+  }, [fetchJobs]);
 
   useEffect(() => {
     if (!isGuest && user) fetchJobs();
@@ -290,7 +314,7 @@ export default function JobsPage() {
         </table>
       </div>
 
-      {selected && <JobDetail job={selected} onClose={() => setSelected(null)} />}
+      {selected && <JobDetail job={selected} onClose={() => setSelected(null)} onRetrigger={isGuest ? undefined : handleRetrigger} />}
     </div>
   );
 }

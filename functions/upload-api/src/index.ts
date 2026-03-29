@@ -1,14 +1,17 @@
 import { http } from '@google-cloud/functions-framework';
 import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
+import { PubSub } from '@google-cloud/pubsub';
 import crypto from 'crypto';
 
 const storage = new Storage();
 const firestore = new Firestore({
   databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
 });
+const pubsub = new PubSub();
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';
+const FILE_UPLOADED_TOPIC = process.env.PUBSUB_FILE_UPLOADED_TOPIC || 'file-uploaded';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 
 // Allowed origins for CORS
@@ -64,6 +67,13 @@ http('uploadApi', (req, res) => {
   // Route: GET /jobs
   if (req.method === 'GET' && req.path === '/jobs') {
     handleListJobs(res);
+    return;
+  }
+
+  // Route: POST /:uploadId/retrigger
+  const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
+  if (req.method === 'POST' && retriggerMatch) {
+    handleRetrigger(retriggerMatch[1], res);
     return;
   }
 
@@ -169,6 +179,68 @@ async function handleStatus(
   } catch (err) {
     console.error('Status fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch job status' });
+  }
+}
+
+const RETRIGGERABLE_STATUSES = ['UPLOADING', 'FAILED', 'REJECTED'];
+
+async function handleRetrigger(
+  jobId: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const docRef = firestore.collection('jobs').doc(jobId);
+    const doc = await docRef.get();
+
+    if (!doc.exists) {
+      res.status(404).json({ error: 'Job not found' });
+      return;
+    }
+
+    const job = doc.data()!;
+
+    if (!RETRIGGERABLE_STATUSES.includes(job.status)) {
+      res.status(409).json({ error: `Cannot retrigger job with status ${job.status}` });
+      return;
+    }
+
+    // Verify file exists in Bronze
+    const bronzePath = (job.bronze_path as string).replace(`gs://${RAW_BUCKET}/`, '');
+    const [exists] = await storage.bucket(RAW_BUCKET).file(bronzePath).exists();
+    if (!exists) {
+      res.status(410).json({ error: 'Source file no longer exists in Bronze bucket' });
+      return;
+    }
+
+    // Reset job status to UPLOADING atomically
+    await docRef.update({
+      status: 'UPLOADING',
+      error: null,
+      silver_path: null,
+      stats: { total_records: 0, valid: 0, rejected: 0, loaded: 0 },
+      updated_at: new Date().toISOString(),
+    });
+
+    // Publish synthetic GCS notification to trigger validator
+    await pubsub.topic(FILE_UPLOADED_TOPIC).publishMessage({
+      json: {
+        kind: 'storage#object',
+        name: bronzePath,
+        bucket: RAW_BUCKET,
+        contentType: job.content_type,
+        size: String(job.file_size_bytes),
+        metadata: {
+          dataset: job.dataset,
+          jobId,
+          uploadedBy: job.uploaded_by,
+        },
+      },
+    });
+
+    res.status(200).json({ status: 'retriggered', jobId });
+  } catch (err) {
+    console.error('Retrigger error:', err);
+    res.status(500).json({ error: 'Failed to retrigger job' });
   }
 }
 

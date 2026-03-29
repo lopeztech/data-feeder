@@ -53,6 +53,21 @@ export async function listJobs(): Promise<PipelineJob[]> {
   return res.json() as Promise<PipelineJob[]>;
 }
 
+export async function retriggerJob(jobId: string): Promise<void> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(jobId)}/retrigger`, {
+    method: 'POST',
+    headers,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(body.error || `Retrigger failed (${res.status})`);
+  }
+}
+
 export async function getUploadStatus(uploadId: string): Promise<unknown> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};

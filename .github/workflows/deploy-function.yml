@@ -55,7 +55,7 @@ jobs:
             --trigger-http \
             --allow-unauthenticated \
             --service-account=sa-upload-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="GCS_RAW_BUCKET=${{ env.PROJECT_ID }}-raw,FIRESTORE_DATABASE=data-feeder" \
+            --set-env-vars="GCS_RAW_BUCKET=${{ env.PROJECT_ID }}-raw,FIRESTORE_DATABASE=data-feeder,PUBSUB_FILE_UPLOADED_TOPIC=file-uploaded" \
             --memory=256Mi \
             --max-instances=10 \
             --timeout=120s \
