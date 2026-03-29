@@ -77,11 +77,35 @@ jobs:
           region: ${{ env.REGION }}
           project_id: ${{ env.PROJECT_ID }}
 
-      - name: Show deployment URL
+      - name: Smoke test deployment
         run: |
           url=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
             --region ${{ env.REGION }} \
             --project ${{ env.PROJECT_ID }} \
             --format 'value(status.url)')
+
+          echo "Testing ${url}..."
+
+          # Verify the service returns the SPA, not the Cloud Run placeholder
+          body=$(curl -s --max-time 30 "${url}")
+
+          if echo "$body" | grep -q "Data Feeder"; then
+            echo "✅ SPA is serving correctly"
+          else
+            echo "❌ SPA not detected — got placeholder or unexpected content:"
+            echo "$body" | head -5
+            exit 1
+          fi
+
+          # Verify health endpoint
+          status=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}/health")
+          if [ "$status" = "200" ]; then
+            echo "✅ Health check passed"
+          else
+            echo "❌ Health check failed with status ${status}"
+            exit 1
+          fi
+
           echo "### Deployed to Cloud Run" >> "$GITHUB_STEP_SUMMARY"
           echo "Service URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Smoke test: ✅ SPA verified, health check passed" >> "$GITHUB_STEP_SUMMARY"
