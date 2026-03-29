@@ -1,0 +1,66 @@
+name: Deploy Loader Function
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/loader/**'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: data-feeder-lcd
+  REGION: australia-southeast1
+  FUNCTION_NAME: loader
+  FUNCTION_DIR: functions/loader
+  RUNTIME: nodejs20
+  ENTRY_POINT: loader
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Loader
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install and build function
+        working-directory: ${{ env.FUNCTION_DIR }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to Cloud Functions (2nd gen)
+        working-directory: ${{ env.FUNCTION_DIR }}
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --runtime=${{ env.RUNTIME }} \
+            --entry-point=${{ env.ENTRY_POINT }} \
+            --trigger-topic=validation-complete \
+            --service-account=sa-dataflow@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-env-vars="FIRESTORE_DATABASE=data-feeder,BQ_CURATED_DATASET=curated,PIPELINE_FAILED_TOPIC=pipeline-failed" \
+            --memory=512Mi \
+            --max-instances=10 \
+            --timeout=540s \
+            --source=.
+
+      - name: Show function info
+        run: |
+          echo "### Loader Function Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Function: \`${{ env.FUNCTION_NAME }}\` (trigger: \`validation-complete\` topic)" >> "$GITHUB_STEP_SUMMARY"

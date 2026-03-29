@@ -55,8 +55,21 @@ The validator (`functions/validator/`) is a Pub/Sub-triggered Cloud Function tha
 
 Runs as `sa-validator` service account with `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`. Env vars: `GCS_RAW_BUCKET`, `GCS_SILVER_BUCKET`, `GCS_REJECTED_BUCKET`, `FIRESTORE_DATABASE`, `VALIDATION_COMPLETE_TOPIC`, `PIPELINE_FAILED_TOPIC`.
 
+### Loader (Cloud Function)
+
+The loader (`functions/loader/`) is a Pub/Sub-triggered Cloud Function that loads validated data into BigQuery:
+- Triggered by `validation-complete` topic (published by validator)
+- Parses CSV/JSON/NDJSON from Silver bucket
+- Creates BigQuery table in `curated` dataset if it doesn't exist (schema inferred from data, day-partitioned)
+- Streams rows into BigQuery in batches of 500
+- Updates Firestore → `LOADED` with row counts
+- On failure: updates Firestore → `FAILED`, publishes `pipeline-failed`
+- Idempotency guard: only processes jobs with status `TRANSFORMING`
+
+Runs as `sa-dataflow` service account with `bigquery.dataEditor`, `bigquery.jobUser`, `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`.
+
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates (Bronze→Silver/Rejected) → publishes `validation-complete` → Dataflow transforms (Silver→Gold→BigQuery). Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to BigQuery (Silver→Gold) → updates Firestore to LOADED. Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
 
 ## Terraform (Infrastructure as Code)
 
@@ -66,10 +79,11 @@ The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev or
 
 ## CI/CD
 
-Three deploy workflows:
-- `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build.
+Four deploy workflows:
+- `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build. Includes post-deploy smoke test.
 - `deploy-function.yml` — builds and deploys the upload-api Cloud Function (HTTP trigger).
 - `deploy-validator.yml` — builds and deploys the validator Cloud Function (Pub/Sub trigger on `file-uploaded` topic).
+- `deploy-loader.yml` — builds and deploys the loader Cloud Function (Pub/Sub trigger on `validation-complete` topic).
 
 Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
 
@@ -88,3 +102,5 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `functions/upload-api/src/index.ts` | Cloud Function: /init, /jobs, /:id/status |
 | `functions/validator/src/index.ts` | Cloud Function: Pub/Sub handler for file validation |
 | `functions/validator/src/validators.ts` | Pure validation logic per file format |
+| `functions/loader/src/index.ts` | Cloud Function: Silver→Gold BigQuery loader |
+| `functions/loader/src/parsers.ts` | File parsing for BQ row conversion |
