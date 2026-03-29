@@ -13,16 +13,19 @@ ARG VITE_GOOGLE_CLIENT_ID
 
 RUN npm run build
 
-# ── Serve stage ────────────────────────────────────────────────────────────────
-FROM nginx:1.27-alpine AS serve
+# ── Run stage ─────────────────────────────────────────────────────────────────
+FROM node:20-alpine AS run
 
-# Remove default nginx config
-RUN rm /etc/nginx/conf.d/default.conf
+WORKDIR /app
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
-COPY --from=build /app/dist /usr/share/nginx/html
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/dist-server ./dist-server
 
 # Cloud Run expects the container to listen on $PORT (default 8080)
+ENV PORT=8080
 EXPOSE 8080
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "dist-server/index.mjs"]

@@ -10,8 +10,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
+      - 'server/**'
       - 'Dockerfile'
-      - 'nginx.conf'
   workflow_dispatch:
 
 env:
