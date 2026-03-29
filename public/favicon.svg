@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Gold layer -->
+  <ellipse cx="16" cy="10" rx="12" ry="4" fill="#22c55e" opacity="0.9"/>
+  <path d="M4 10v3c0 2.2 5.4 4 12 4s12-1.8 12-4v-3c0 2.2-5.4 4-12 4S4 12.2 4 10z" fill="#16a34a"/>
+  <!-- Silver layer -->
+  <ellipse cx="16" cy="16" rx="12" ry="4" fill="#3b82f6" opacity="0.9"/>
+  <path d="M4 16v3c0 2.2 5.4 4 12 4s12-1.8 12-4v-3c0 2.2-5.4 4-12 4S4 18.2 4 16z" fill="#2563eb"/>
+  <!-- Bronze layer -->
+  <ellipse cx="16" cy="22" rx="12" ry="4" fill="#f97316" opacity="0.9"/>
+  <path d="M4 22v3c0 2.2 5.4 4 12 4s12-1.8 12-4v-3c0 2.2-5.4 4-12 4S4 24.2 4 22z" fill="#ea580c"/>
+  <!-- Upload arrow -->
+  <path d="M16 28V6M11 11l5-5 5 5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+</svg>
