@@ -36,7 +36,7 @@ function StatusBadge({ status }: { status: JobStatus }) {
   );
 }
 
-const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED'];
+const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
 
 function JobDetail({ job, onClose, onRetrigger }: { job: PipelineJob; onClose: () => void; onRetrigger?: (jobId: string) => void }) {
   const completionPct = job.stats.total_records > 0
