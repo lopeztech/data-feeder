@@ -1,10 +1,12 @@
 import { cloudEvent, CloudEvent } from '@google-cloud/functions-framework';
 import { BigQuery } from '@google-cloud/bigquery';
+import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
 import { PubSub } from '@google-cloud/pubsub';
 import type { ValidationCompleteMessage, MessagePublishedData } from './types.js';
 
 const bigquery = new BigQuery();
+const gcs = new Storage();
 const firestore = new Firestore({
   databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
 });
@@ -57,6 +59,13 @@ cloudEvent('loader', async (event: CloudEvent<MessagePublishedData>) => {
       return;
     }
 
+    // Parse gs:// path
+    const pathMatch = silverPath.match(/^gs:\/\/([^/]+)\/(.+)$/);
+    if (!pathMatch) {
+      throw new Error(`Invalid Silver path: ${silverPath}`);
+    }
+    const [, bucketName, objectName] = pathMatch;
+
     // Sanitize table name for BigQuery
     const tableName = (jobDoc.data()?.bq_table || dataset)
       .replace(/[^a-zA-Z0-9_]/g, '_')
@@ -67,8 +76,9 @@ cloudEvent('loader', async (event: CloudEvent<MessagePublishedData>) => {
     const sourceFormat = FORMAT_MAP[contentType] || 'CSV';
 
     // Use BQ load job directly from GCS — handles schema auto-detection
+    const gcsFile = gcs.bucket(bucketName).file(objectName);
     const [job] = await bigquery.dataset(BQ_DATASET).table(tableName).load(
-      silverPath,
+      gcsFile,
       {
         sourceFormat,
         autodetect: true,
