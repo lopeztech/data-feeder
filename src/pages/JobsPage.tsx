@@ -153,7 +153,6 @@ export default function JobsPage() {
   const isGuest = user?.role === 'guest';
 
   const fetchJobs = useCallback(async () => {
-    if (isGuest) return;
     setLoading(true);
     try {
       setLiveJobs(await listJobs());
@@ -162,9 +161,11 @@ export default function JobsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isGuest]);
+  }, []);
 
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
+  useEffect(() => {
+    if (!isGuest && user) fetchJobs();
+  }, [user, isGuest, fetchJobs]);
 
   const jobs = isGuest ? MOCK_JOBS : liveJobs;
 
