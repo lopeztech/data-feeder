@@ -13,47 +13,64 @@ npm run preview    # Preview production build locally
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully.
+Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully. `VITE_UPLOAD_API_URL` is optional locally (defaults to `/api/uploads`); in production it's set to the Cloud Function URL at Docker build time.
 
 ## Architecture
 
-React 18 + Vite + TypeScript SPA. Tailwind CSS v3 for styling. React Router v7 for routing. Google Identity Services (GIS) for auth. React Query for server state.
+React 19 + Vite 8 + TypeScript SPA. Tailwind CSS v4 for styling. React Router v7 for routing. Google Identity Services (GIS) for auth. React Query for server state.
 
 ### Auth model
 Two entry points on the login page:
-- **Google OAuth** — Google Identity Services `google.accounts.id.prompt()`. On success, user gets `role: 'google'` and full access (upload + jobs). The GIS JWT (ID token) is used as the Bearer token for API calls.
+- **Google OAuth** — Google Identity Services `renderButton`. On success, user gets `role: 'google'` and full access (upload + jobs). The GIS JWT (ID token) is used as the Bearer token for API calls. Auth state persisted to `sessionStorage`.
 - **Guest** — no auth call; sets a synthetic `GUEST_USER` in `AuthContext` with `role: 'guest'`. All upload controls are disabled; jobs page shows `MOCK_JOBS` from `src/data/mockJobs.ts`.
 
-`AuthContext` (`src/context/AuthContext.tsx`) exposes `user`, `signInWithGoogle`, `signInAsGuest`, `signOutUser`. Check `user.role === 'guest'` to gate features. `getGoogleCredential()` is exported for retrieving the current ID token.
+`AuthContext` (`src/context/AuthContext.tsx`) exposes `user`, `gsiReady`, `signInAsGuest`, `signOutUser`, `renderGoogleButton`. Check `user.role === 'guest'` to gate features. `getGoogleCredential()` is exported for retrieving the current ID token.
 
 ### Route structure
 ```
 /login          → LoginPage (public)
 /upload         → UploadPage (protected, Google only can submit)
-/jobs           → JobsPage  (protected, guests see mock data)
+/jobs           → JobsPage  (protected, Google users see live Firestore data, guests see mock data)
 ```
 
-`ProtectedRoute` redirects unauthenticated users to `/login`. `Layout` wraps all protected routes with the sidebar.
+`ProtectedRoute` redirects unauthenticated users to `/login`. `Layout` wraps all protected routes with a responsive sidebar (collapsible drawer on mobile).
 
-### Data flow (design intent)
-Upload page → calls `POST /api/uploads/init` → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Cloud Function validates (Bronze→Silver) → Dataflow transforms (Silver→Gold→BigQuery). Job status tracked in Firestore and reflected in the jobs page via `onSnapshot`.
+### Upload API (Cloud Function)
 
-The current implementation simulates upload progress client-side. The `MOCK_JOBS` dataset in `src/data/mockJobs.ts` represents what real Firestore documents will look like.
+The upload API is a Cloud Function (`functions/upload-api/`) — not bundled in the SPA container. It handles:
+- `POST /init` — generates GCS signed URL (simple or resumable), creates Firestore job document
+- `GET /jobs` — returns 100 most recent jobs from Firestore
+- `GET /:uploadId/status` — returns a single job document
+
+Runs as `sa-upload-api` service account with `serviceAccountTokenCreator` and `datastore.user`. Firestore database: `data-feeder`.
+
+### Data flow
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Cloud Function validates (Bronze→Silver) → Dataflow transforms (Silver→Gold→BigQuery). Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
 
 ## Terraform (Infrastructure as Code)
 
 > **All GCP infrastructure (Terraform) is centrally managed in the `platform-infra` repo, not here.** Do not look for or create `terraform/` in this repo.
 
-The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev org, including the WIF pool/provider and service accounts used by this repo's GitHub Actions workflow.
+The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev org, including the WIF pool/provider and service accounts used by this repo's GitHub Actions workflows.
+
+## CI/CD
+
+Two deploy workflows:
+- `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build.
+- `deploy-function.yml` — builds and deploys the upload-api Cloud Function.
+
+Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
 
 ### Key files
 | File | Purpose |
 |---|---|
-| `src/context/AuthContext.tsx` | Auth state (GIS), Google + Guest sign-in/out, credential store |
+| `src/context/AuthContext.tsx` | Auth state (GIS), Google + Guest sign-in/out, sessionStorage persistence |
+| `src/lib/uploadService.ts` | initUpload, listJobs, simpleUploadToGCS, resumableUploadToGCS |
 | `src/types/google-accounts.d.ts` | Type declarations for the Google Identity Services client |
 | `src/data/mockJobs.ts` | Demo pipeline jobs (used by guests + dev) |
 | `src/types/index.ts` | Shared types: `AuthUser`, `PipelineJob`, `JobStatus` |
-| `src/pages/LoginPage.tsx` | Login UI with Google and Guest options |
-| `src/pages/UploadPage.tsx` | File drop zone + pipeline preview |
-| `src/pages/JobsPage.tsx` | Job table with status filter + detail modal |
-| `src/components/Layout.tsx` | Sidebar nav + user panel |
+| `src/pages/LoginPage.tsx` | Login UI with Google renderButton and Guest options |
+| `src/pages/UploadPage.tsx` | File drop zone, schema preview, BQ schema export, metadata form, upload progress |
+| `src/pages/JobsPage.tsx` | Job list (live or mock) with status filter + detail modal |
+| `src/components/Layout.tsx` | Responsive sidebar nav + user panel |
+| `functions/upload-api/src/index.ts` | Cloud Function: /init, /jobs, /:id/status |
