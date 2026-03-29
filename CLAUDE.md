@@ -44,8 +44,19 @@ The upload API is a Cloud Function (`functions/upload-api/`) — not bundled in 
 
 Runs as `sa-upload-api` service account with `serviceAccountTokenCreator` and `datastore.user`. Firestore database: `data-feeder`.
 
+### Validator (Cloud Function)
+
+The validator (`functions/validator/`) is a Pub/Sub-triggered Cloud Function that processes uploaded files:
+- Triggered by `file-uploaded` topic (GCS OBJECT_FINALIZE on Bronze bucket)
+- Validates CSV (csv-parse), JSON, NDJSON (schema/record check), Parquet/Avro (magic bytes)
+- **Pass**: copies to Silver bucket, updates Firestore → `TRANSFORMING`, publishes `validation-complete`
+- **Fail**: copies to Rejected bucket, updates Firestore → `REJECTED`/`FAILED`, publishes `pipeline-failed`
+- Idempotency guard: only processes jobs with status `UPLOADING`
+
+Runs as `sa-validator` service account with `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`. Env vars: `GCS_RAW_BUCKET`, `GCS_SILVER_BUCKET`, `GCS_REJECTED_BUCKET`, `FIRESTORE_DATABASE`, `VALIDATION_COMPLETE_TOPIC`, `PIPELINE_FAILED_TOPIC`.
+
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Cloud Function validates (Bronze→Silver) → Dataflow transforms (Silver→Gold→BigQuery). Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates (Bronze→Silver/Rejected) → publishes `validation-complete` → Dataflow transforms (Silver→Gold→BigQuery). Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
 
 ## Terraform (Infrastructure as Code)
 
@@ -55,9 +66,10 @@ The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev or
 
 ## CI/CD
 
-Two deploy workflows:
+Three deploy workflows:
 - `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build.
-- `deploy-function.yml` — builds and deploys the upload-api Cloud Function.
+- `deploy-function.yml` — builds and deploys the upload-api Cloud Function (HTTP trigger).
+- `deploy-validator.yml` — builds and deploys the validator Cloud Function (Pub/Sub trigger on `file-uploaded` topic).
 
 Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
 
@@ -74,3 +86,5 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `src/pages/JobsPage.tsx` | Job list (live or mock) with status filter + detail modal |
 | `src/components/Layout.tsx` | Responsive sidebar nav + user panel |
 | `functions/upload-api/src/index.ts` | Cloud Function: /init, /jobs, /:id/status |
+| `functions/validator/src/index.ts` | Cloud Function: Pub/Sub handler for file validation |
+| `functions/validator/src/validators.ts` | Pure validation logic per file format |
