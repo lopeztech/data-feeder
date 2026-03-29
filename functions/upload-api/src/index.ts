@@ -1,9 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { http } from '@google-cloud/functions-framework';
 import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
 import crypto from 'crypto';
-
-const router = Router();
 
 const storage = new Storage();
 const firestore = new Firestore({
@@ -12,6 +10,12 @@ const firestore = new Firestore({
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
+
+// Allowed origins for CORS
+const ALLOWED_ORIGINS = [
+  'https://datafeeder.lopezcloud.dev',
+  'http://localhost:5173',
+];
 
 interface InitBody {
   filename: string;
@@ -22,17 +26,13 @@ interface InitBody {
   description?: string;
 }
 
-function extractUser(req: Request): { uid: string; email: string } {
-  // The frontend sends the Google ID token as Bearer token.
-  // For now, decode the JWT payload (signature was verified by Google on the client).
-  // A production setup would verify the token server-side.
-  const auth = req.headers.authorization;
-  if (!auth?.startsWith('Bearer ')) {
+function extractUser(authHeader: string | undefined): { uid: string; email: string } {
+  if (!authHeader?.startsWith('Bearer ')) {
     return { uid: 'anonymous', email: 'anonymous' };
   }
   try {
     const payload = JSON.parse(
-      Buffer.from(auth.slice(7).split('.')[1], 'base64url').toString()
+      Buffer.from(authHeader.slice(7).split('.')[1], 'base64url').toString()
     );
     return { uid: payload.sub ?? 'unknown', email: payload.email ?? 'unknown' };
   } catch {
@@ -40,7 +40,41 @@ function extractUser(req: Request): { uid: string; email: string } {
   }
 }
 
-router.post('/init', async (req: Request, res: Response) => {
+http('uploadApi', (req, res) => {
+  // CORS
+  const origin = req.headers.origin ?? '';
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.set('Access-Control-Allow-Origin', origin);
+  }
+  res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.set('Access-Control-Max-Age', '3600');
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).send('');
+    return;
+  }
+
+  // Route: POST /init
+  if (req.method === 'POST' && req.path === '/init') {
+    handleInit(req, res);
+    return;
+  }
+
+  // Route: GET /:uploadId/status
+  const statusMatch = req.path.match(/^\/([a-f0-9-]+)\/status$/);
+  if (req.method === 'GET' && statusMatch) {
+    handleStatus(statusMatch[1], res);
+    return;
+  }
+
+  res.status(404).json({ error: 'Not found' });
+});
+
+async function handleInit(
+  req: { body: unknown; headers: { authorization?: string } },
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
   try {
     const body = req.body as InitBody;
 
@@ -49,7 +83,7 @@ router.post('/init', async (req: Request, res: Response) => {
       return;
     }
 
-    const user = extractUser(req);
+    const user = extractUser(req.headers.authorization);
     const jobId = crypto.randomUUID();
     const objectPath = `${body.dataset}/${jobId}/${body.filename}`;
     const contentType = body.contentType || 'application/octet-stream';
@@ -61,7 +95,6 @@ router.post('/init', async (req: Request, res: Response) => {
     let signedUrl: string;
 
     if (isResumable) {
-      // Generate a resumable upload URI
       const [uri] = await file.createResumableUpload({
         metadata: {
           contentType,
@@ -74,17 +107,15 @@ router.post('/init', async (req: Request, res: Response) => {
       });
       signedUrl = uri;
     } else {
-      // Generate a v4 signed URL for a simple PUT
       const [url] = await file.getSignedUrl({
         version: 'v4',
         action: 'write',
-        expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+        expires: Date.now() + 15 * 60 * 1000,
         contentType,
       });
       signedUrl = url;
     }
 
-    // Create Firestore job document
     const now = new Date().toISOString();
     const jobDoc = {
       job_id: jobId,
@@ -106,7 +137,7 @@ router.post('/init', async (req: Request, res: Response) => {
 
     await firestore.collection('jobs').doc(jobId).set(jobDoc);
 
-    res.json({
+    res.status(200).json({
       uploadId: jobId,
       signedUrl,
       objectPath,
@@ -116,20 +147,21 @@ router.post('/init', async (req: Request, res: Response) => {
     console.error('Upload init error:', err);
     res.status(500).json({ error: 'Failed to initialize upload' });
   }
-});
+}
 
-router.get('/:uploadId/status', async (req: Request<{ uploadId: string }>, res: Response) => {
+async function handleStatus(
+  uploadId: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
   try {
-    const doc = await firestore.collection('jobs').doc(req.params.uploadId).get();
+    const doc = await firestore.collection('jobs').doc(uploadId).get();
     if (!doc.exists) {
       res.status(404).json({ error: 'Job not found' });
       return;
     }
-    res.json(doc.data());
+    res.status(200).json(doc.data());
   } catch (err) {
     console.error('Status fetch error:', err);
     res.status(500).json({ error: 'Failed to fetch job status' });
   }
-});
-
-export { router };
+}

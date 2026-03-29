@@ -2,6 +2,7 @@ import { getGoogleCredential } from '../context/AuthContext';
 
 export const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 const CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB per chunk
+const API_BASE = import.meta.env.VITE_UPLOAD_API_URL || '/api/uploads';
 
 export interface InitUploadRequest {
   filename: string;
@@ -28,7 +29,7 @@ export async function initUpload(req: InitUploadRequest): Promise<InitUploadResp
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch('/api/uploads/init', {
+  const res = await fetch(`${API_BASE}/init`, {
     method: 'POST',
     headers,
     body: JSON.stringify(req),
@@ -46,7 +47,7 @@ export async function getUploadStatus(uploadId: string): Promise<unknown> {
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`/api/uploads/${encodeURIComponent(uploadId)}/status`, { headers });
+  const res = await fetch(`${API_BASE}/${encodeURIComponent(uploadId)}/status`, { headers });
   if (!res.ok) throw new Error(`Status fetch failed (${res.status})`);
   return res.json();
 }

@@ -10,8 +10,8 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
-      - 'server/**'
       - 'Dockerfile'
+      - 'nginx.conf'
   workflow_dispatch:
 
 env:
@@ -45,10 +45,21 @@ jobs:
       - name: Authenticate Docker to Artifact Registry
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
 
+      - name: Get Upload API function URL
+        id: fn-url
+        run: |
+          url=$(gcloud functions describe upload-api \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --format='value(serviceConfig.uri)' 2>/dev/null || echo "")
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+
       - name: Build Docker image
         run: |
           docker build \
             --build-arg VITE_GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
+            --build-arg VITE_UPLOAD_API_URL="${{ steps.fn-url.outputs.url }}" \
             -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest \
             .

@@ -1,0 +1,72 @@
+name: Deploy Upload API Function
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/upload-api/**'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: data-feeder-lcd
+  REGION: australia-southeast1
+  FUNCTION_NAME: upload-api
+  FUNCTION_DIR: functions/upload-api
+  RUNTIME: nodejs20
+  ENTRY_POINT: uploadApi
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Deploy Cloud Function
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install and build function
+        working-directory: ${{ env.FUNCTION_DIR }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Deploy to Cloud Functions (2nd gen)
+        working-directory: ${{ env.FUNCTION_DIR }}
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --runtime=${{ env.RUNTIME }} \
+            --entry-point=${{ env.ENTRY_POINT }} \
+            --trigger-http \
+            --allow-unauthenticated \
+            --service-account=sa-upload-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-env-vars="GCS_RAW_BUCKET=${{ env.PROJECT_ID }}-raw,FIRESTORE_DATABASE=(default)" \
+            --memory=256Mi \
+            --max-instances=10 \
+            --timeout=120s \
+            --source=.
+
+      - name: Show function URL
+        run: |
+          url=$(gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --region=${{ env.REGION }} \
+            --project=${{ env.PROJECT_ID }} \
+            --format='value(serviceConfig.uri)')
+          echo "### Upload API Function Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "Function URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
