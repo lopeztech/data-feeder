@@ -137,6 +137,7 @@ export default function UploadPage() {
 
   const [file, setFile] = useState<File | null>(null);
   const [dataset, setDataset] = useState('');
+  const [datasetTouched, setDatasetTouched] = useState(false);
   const [description, setDescription] = useState('');
   const [bqTable, setBqTable] = useState('');
   const [bqTableTouched, setBqTableTouched] = useState(false);
@@ -154,16 +155,14 @@ export default function UploadPage() {
     if (!newFile) { setPreview(null); setPreviewLoading(false); return; }
     // Auto-populate dataset and BQ table from filename (strip extension, lowercase, underscores)
     const baseName = newFile.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
-    if (!dataset || !bqTableTouched) {
-      setDataset(baseName);
-      if (!bqTableTouched) setBqTable(baseName);
-    }
+    if (!datasetTouched) setDataset(baseName);
+    if (!bqTableTouched) setBqTable(baseName);
     setPreviewLoading(true);
     inferSchema(newFile).then(result => {
       setPreview(result);
       setPreviewLoading(false);
     });
-  }, [dataset, bqTableTouched]);
+  }, [datasetTouched, bqTableTouched]);
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) handleFileChange(accepted[0]);
@@ -209,7 +208,7 @@ export default function UploadPage() {
   };
 
   const handleReset = () => {
-    handleFileChange(null); setDataset(''); setDescription(''); setBqTable('');
+    handleFileChange(null); setDataset(''); setDatasetTouched(false); setDescription(''); setBqTable('');
     setBqTableTouched(false); setSchemaFile(null); setPreview(null);
     setProgress(null); setUploadError(null); setUploadId(null); setSubmitted(false);
   };
@@ -395,7 +394,7 @@ export default function UploadPage() {
               <input
                 type="text"
                 value={dataset}
-                onChange={e => { const v = e.target.value.toLowerCase().replace(/\s+/g, '_'); setDataset(v); if (!bqTableTouched) setBqTable(v); }}
+                onChange={e => { const v = e.target.value.toLowerCase().replace(/\s+/g, '_'); setDataset(v); setDatasetTouched(true); if (!bqTableTouched) setBqTable(v); }}
                 placeholder="e.g. sales_orders"
                 disabled={isGuest}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:opacity-40"
