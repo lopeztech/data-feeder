@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 const storage = new Storage();
 const firestore = new Firestore({
-  databaseId: process.env.FIRESTORE_DATABASE || '(default)',
+  databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
 });
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';

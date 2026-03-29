@@ -152,12 +152,18 @@ export default function UploadPage() {
   const handleFileChange = useCallback((newFile: File | null) => {
     setFile(newFile);
     if (!newFile) { setPreview(null); setPreviewLoading(false); return; }
+    // Auto-populate dataset and BQ table from filename (strip extension, lowercase, underscores)
+    const baseName = newFile.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
+    if (!dataset || !bqTableTouched) {
+      setDataset(baseName);
+      if (!bqTableTouched) setBqTable(baseName);
+    }
     setPreviewLoading(true);
     inferSchema(newFile).then(result => {
       setPreview(result);
       setPreviewLoading(false);
     });
-  }, []);
+  }, [dataset, bqTableTouched]);
 
   const onDrop = useCallback((accepted: File[]) => {
     if (accepted.length > 0) handleFileChange(accepted[0]);
