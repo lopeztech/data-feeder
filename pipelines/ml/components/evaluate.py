@@ -16,6 +16,7 @@ def evaluate(
     metrics: dsl.Input[dsl.Artifact],
     feature_columns: dsl.Input[dsl.Artifact],
     project_id: str,
+    region: str,
     bq_dataset: str,
     report: dsl.Output[dsl.Artifact],
 ):
@@ -68,7 +69,7 @@ def evaluate(
     output_df = df[["player_id", "cluster_id", "impact_score"]].copy()
     output_df["cluster_id"] = output_df["cluster_id"].astype(int)
 
-    client = bigquery.Client(project=project_id)
+    client = bigquery.Client(project=project_id, location=region)
     table_id = f"{project_id}.{bq_dataset}.player_clusters"
     job_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_TRUNCATE",

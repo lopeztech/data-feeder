@@ -47,6 +47,7 @@ def player_clustering_pipeline(
         metrics=train_task.outputs["metrics"],
         feature_columns=preprocess_task.outputs["feature_columns"],
         project_id=project_id,
+        region=region,
         bq_dataset=bq_dataset,
     )
 
