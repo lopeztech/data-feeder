@@ -68,8 +68,17 @@ The loader (`functions/loader/`) is a Pub/Sub-triggered Cloud Function that load
 
 Runs as `sa-dataflow` service account with `bigquery.dataEditor`, `bigquery.jobUser`, `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`.
 
+### ML Pipeline (Vertex AI)
+
+K-Means clustering for player role identification (`pipelines/ml/`):
+- **Feature view**: `curated.player_features_v` — JOIN profiles + stats, derived features (goals/appearance, shot accuracy, goals vs expected)
+- **Pipeline** (KFP): preprocess → train (sweep k=3..10, best silhouette) → evaluate (cluster analysis, write to `curated.player_clusters`) → deploy to Vertex AI endpoint
+- **Model**: scikit-learn KMeans, StandardScaler normalized features
+- **Output**: `player_clusters` table with cluster_id + impact_score per player
+- Runs as `sa-ml` service account via Vertex AI Pipelines
+
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to BigQuery (Silver→Gold) → updates Firestore to LOADED. Job status tracked in Firestore and fetched by the jobs page via the `/jobs` endpoint.
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates + masks PII (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to BigQuery (Silver→Gold) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
 
 ## Terraform (Infrastructure as Code)
 
@@ -79,11 +88,12 @@ The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev or
 
 ## CI/CD
 
-Four deploy workflows:
+Five deploy workflows:
 - `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build. Includes post-deploy smoke test.
 - `deploy-function.yml` — builds and deploys the upload-api Cloud Function (HTTP trigger).
 - `deploy-validator.yml` — builds and deploys the validator Cloud Function (Pub/Sub trigger on `file-uploaded` topic).
 - `deploy-loader.yml` — builds and deploys the loader Cloud Function (Pub/Sub trigger on `validation-complete` topic).
+- `deploy-ml-pipeline.yml` — creates BQ feature view, compiles KFP pipeline, submits to Vertex AI.
 
 Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
 
@@ -104,3 +114,6 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `functions/validator/src/validators.ts` | Pure validation logic per file format |
 | `functions/loader/src/index.ts` | Cloud Function: Silver→Gold BigQuery loader |
 | `functions/loader/src/parsers.ts` | File parsing for BQ row conversion |
+| `pipelines/ml/pipeline.py` | KFP pipeline definition for K-Means clustering |
+| `pipelines/ml/components/` | Pipeline components: preprocess, train, evaluate, deploy |
+| `pipelines/ml/sql/player_features_view.sql` | BigQuery view joining profiles + stats |
