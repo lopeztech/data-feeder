@@ -68,7 +68,7 @@ jobs:
           gsutil cp pipeline.json ${{ env.GCS_BUCKET }}/pipelines/${{ env.PIPELINE_NAME }}/pipeline.json
 
       - name: Submit pipeline run
-        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline || github.event_name == 'push'
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
         working-directory: pipelines/ml
         run: |
           python -c "
