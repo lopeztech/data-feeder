@@ -11,13 +11,13 @@ from kfp import dsl
     ],
 )
 def evaluate(
-    dataset_path: dsl.InputPath("Dataset"),
-    model_path: dsl.InputPath("Model"),
-    metrics_path: dsl.InputPath("Metrics"),
-    feature_columns_path: dsl.InputPath("JsonArray"),
+    dataset_path: dsl.InputPath(str),
+    model_path: dsl.InputPath(str),
+    metrics_path: dsl.InputPath(str),
+    feature_columns_path: dsl.InputPath(str),
     project_id: str,
     bq_dataset: str,
-    report_path: dsl.OutputPath("Report"),
+    report_path: dsl.OutputPath(str),
 ):
     """Assign clusters, analyze, write player_clusters to BigQuery."""
     import json

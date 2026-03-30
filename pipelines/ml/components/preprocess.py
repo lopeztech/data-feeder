@@ -10,8 +10,8 @@ from kfp import dsl
 def preprocess(
     project_id: str,
     bq_view: str,
-    output_gcs_path: dsl.OutputPath("Dataset"),
-    feature_columns_path: dsl.OutputPath("JsonArray"),
+    output_gcs_path: dsl.OutputPath(str),
+    feature_columns_path: dsl.OutputPath(str),
 ) -> int:
     """Read features from BigQuery, normalize with StandardScaler, save to GCS."""
     import json

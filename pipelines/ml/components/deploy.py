@@ -8,8 +8,8 @@ from kfp import dsl
     packages_to_install=["google-cloud-aiplatform", "joblib", "scikit-learn"],
 )
 def deploy_model(
-    model_path: dsl.InputPath("Model"),
-    metrics_path: dsl.InputPath("Metrics"),
+    model_path: dsl.InputPath(str),
+    metrics_path: dsl.InputPath(str),
     project_id: str,
     region: str,
     model_display_name: str = "player-role-kmeans",

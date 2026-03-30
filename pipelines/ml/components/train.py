@@ -8,10 +8,10 @@ from kfp import dsl
     packages_to_install=["pandas", "scikit-learn", "joblib", "pyarrow"],
 )
 def train(
-    dataset_path: dsl.InputPath("Dataset"),
-    feature_columns_path: dsl.InputPath("JsonArray"),
-    model_path: dsl.OutputPath("Model"),
-    metrics_path: dsl.OutputPath("Metrics"),
+    dataset_path: dsl.InputPath(str),
+    feature_columns_path: dsl.InputPath(str),
+    model_path: dsl.OutputPath(str),
+    metrics_path: dsl.OutputPath(str),
     min_k: int = 3,
     max_k: int = 10,
 ) -> int:
