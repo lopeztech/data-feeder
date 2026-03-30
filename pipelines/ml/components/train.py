@@ -5,7 +5,10 @@ from kfp import dsl
 
 @dsl.component(
     base_image="python:3.11-slim",
-    packages_to_install=["pandas", "scikit-learn", "joblib", "pyarrow"],
+    packages_to_install=[
+        "pandas==2.2.3", "scikit-learn==1.6.1", "joblib==1.4.2",
+        "pyarrow==18.1.0", "protobuf>=4.21.1,<5", "urllib3>=1.26,<2",
+    ],
 )
 def train(
     dataset: dsl.Input[dsl.Dataset],

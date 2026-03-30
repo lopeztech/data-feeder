@@ -6,8 +6,9 @@ from kfp import dsl
 @dsl.component(
     base_image="python:3.11-slim",
     packages_to_install=[
-        "pandas", "scikit-learn", "joblib", "pyarrow",
-        "google-cloud-bigquery", "db-dtypes",
+        "pandas==2.2.3", "scikit-learn==1.6.1", "joblib==1.4.2",
+        "pyarrow==18.1.0", "google-cloud-bigquery==3.30.0",
+        "db-dtypes==1.3.1", "protobuf>=4.21.1,<5", "urllib3>=1.26,<2",
     ],
 )
 def evaluate(

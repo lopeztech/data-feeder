@@ -5,7 +5,10 @@ from kfp import dsl
 
 @dsl.component(
     base_image="python:3.11-slim",
-    packages_to_install=["google-cloud-bigquery", "pandas", "db-dtypes", "scikit-learn", "pyarrow"],
+    packages_to_install=[
+        "google-cloud-bigquery==3.30.0", "pandas==2.2.3", "db-dtypes==1.3.1",
+        "scikit-learn==1.6.1", "pyarrow==18.1.0", "protobuf>=4.21.1,<5", "urllib3>=1.26,<2",
+    ],
 )
 def preprocess(
     project_id: str,

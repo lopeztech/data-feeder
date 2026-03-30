@@ -5,7 +5,10 @@ from kfp import dsl
 
 @dsl.component(
     base_image="python:3.11-slim",
-    packages_to_install=["google-cloud-aiplatform", "joblib", "scikit-learn"],
+    packages_to_install=[
+        "google-cloud-aiplatform==1.82.0", "joblib==1.4.2", "scikit-learn==1.6.1",
+        "protobuf>=4.21.1,<5", "urllib3>=1.26,<2",
+    ],
 )
 def deploy_model(
     model: dsl.Input[dsl.Model],
