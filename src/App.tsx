@@ -6,6 +6,7 @@ import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import UploadPage from './pages/UploadPage';
 import JobsPage from './pages/JobsPage';
+import InsightsPage from './pages/InsightsPage';
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ export default function App() {
               <Route element={<Layout />}>
                 <Route path="/upload" element={<UploadPage />} />
                 <Route path="/jobs" element={<JobsPage />} />
+                <Route path="/insights" element={<InsightsPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/login" replace />} />

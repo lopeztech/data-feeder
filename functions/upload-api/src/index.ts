@@ -81,6 +81,12 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /clusters
+  if (req.method === 'GET' && req.path === '/clusters') {
+    handleClusters(res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -254,6 +260,62 @@ async function handleBulkDelete(
   } catch (err) {
     console.error('Bulk delete error:', err);
     res.status(500).json({ error: 'Failed to delete jobs' });
+  }
+}
+
+async function handleClusters(
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    // Cluster summary
+    const [summaryRows] = await bigquery.query({
+      query: `
+        SELECT
+          c.cluster_id,
+          COUNT(*) AS player_count,
+          ROUND(AVG(c.impact_score), 4) AS avg_impact_score,
+          ROUND(AVG(SAFE_CAST(s.goals AS FLOAT64)), 2) AS avg_goals,
+          ROUND(AVG(SAFE_CAST(s.assists AS FLOAT64)), 2) AS avg_assists,
+          ROUND(AVG(SAFE_CAST(s.tackles AS FLOAT64)), 2) AS avg_tackles,
+          ROUND(AVG(SAFE_CAST(s.interceptions AS FLOAT64)), 2) AS avg_interceptions,
+          ROUND(AVG(SAFE_CAST(s.saves AS FLOAT64)), 2) AS avg_saves,
+          ROUND(AVG(SAFE_CAST(s.rating AS FLOAT64)), 4) AS avg_rating,
+          ROUND(AVG(SAFE_CAST(s.minutes_played AS FLOAT64)), 0) AS avg_minutes
+        FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
+        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON c.player_id = s.player_id
+        GROUP BY c.cluster_id
+        ORDER BY c.cluster_id
+      `,
+    });
+
+    // Top impact players per cluster
+    const [playerRows] = await bigquery.query({
+      query: `
+        SELECT
+          c.cluster_id,
+          c.impact_score,
+          p.player_id,
+          p.name,
+          p.position,
+          p.league,
+          SAFE_CAST(s.goals AS INT64) AS goals,
+          SAFE_CAST(s.assists AS INT64) AS assists,
+          SAFE_CAST(s.appearances AS INT64) AS appearances,
+          SAFE_CAST(s.tackles AS INT64) AS tackles,
+          SAFE_CAST(s.saves AS INT64) AS saves,
+          ROUND(SAFE_CAST(s.rating AS FLOAT64), 2) AS rating
+        FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
+        JOIN \`${BQ_CURATED_DATASET}.all_player_profiles\` p ON c.player_id = p.player_id
+        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON c.player_id = s.player_id
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.impact_score DESC) <= 10
+        ORDER BY c.cluster_id, c.impact_score DESC
+      `,
+    });
+
+    res.status(200).json({ clusters: summaryRows, players: playerRows });
+  } catch (err) {
+    console.error('Clusters error:', err);
+    res.status(500).json({ error: 'Failed to fetch cluster data. ML pipeline may not have run yet.' });
   }
 }
 
