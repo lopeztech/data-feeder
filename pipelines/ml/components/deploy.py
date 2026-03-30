@@ -64,7 +64,7 @@ class Predictor:
     model = aiplatform.Model.upload(
         display_name=model_display_name,
         artifact_uri=artifact_dir,
-        serving_container_image_uri=f"{region}-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest",
+        serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest",
         labels={
             "pipeline": "player-role-clustering",
             "k": str(metrics_data["best_k"]),
