@@ -1,0 +1,251 @@
+<mxfile host="app.diagrams.net" modified="2026-03-30T05:00:00.000Z" agent="Claude Code" version="24.0.0">
+  <diagram name="Data Feeder Architecture" id="data-feeder-arch">
+    <mxGraphModel dx="1422" dy="762" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <!-- Title -->
+        <mxCell id="title" value="Data Feeder — GCP Architecture" style="text;html=1;fontSize=20;fontStyle=1;align=left;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="30" y="10" width="400" height="40" as="geometry" />
+        </mxCell>
+
+        <!-- User / Browser -->
+        <mxCell id="user" value="Browser" style="shape=mxgraph.gcp2.person;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="30" y="120" width="70" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Cloud Run SPA -->
+        <mxCell id="spa" value="Cloud Run&#xa;(nginx SPA)" style="shape=mxgraph.gcp2.cloud_run;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="120" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Load Balancer -->
+        <mxCell id="lb" value="HTTPS LB&#xa;datafeeder.lopezcloud.dev" style="shape=mxgraph.gcp2.cloud_load_balancing;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="180" y="30" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Upload API Function -->
+        <mxCell id="upload-api" value="upload-api&#xa;Cloud Function" style="shape=mxgraph.gcp2.cloud_functions;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="380" y="120" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- GCS Bronze -->
+        <mxCell id="bronze" value="GCS Bronze&#xa;(Raw)" style="shape=mxgraph.gcp2.cloud_storage;fillColor=#F4B400;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="580" y="120" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Pub/Sub file-uploaded -->
+        <mxCell id="ps-uploaded" value="Pub/Sub&#xa;file-uploaded" style="shape=mxgraph.gcp2.cloud_pub_sub;fillColor=#0F9D58;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="580" y="260" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Validator Function -->
+        <mxCell id="validator" value="validator&#xa;Cloud Function&#xa;(PII Mask)" style="shape=mxgraph.gcp2.cloud_functions;fillColor=#0F9D58;fontColor=#ffffff;strokeColor=none;fontSize=9;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="780" y="260" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- GCS Silver -->
+        <mxCell id="silver" value="GCS Silver&#xa;(Validated)" style="shape=mxgraph.gcp2.cloud_storage;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="980" y="260" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- GCS Rejected -->
+        <mxCell id="rejected" value="GCS Rejected" style="shape=mxgraph.gcp2.cloud_storage;fillColor=#DB4437;fontColor=#ffffff;strokeColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="780" y="400" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Pub/Sub validation-complete -->
+        <mxCell id="ps-validated" value="Pub/Sub&#xa;validation-complete" style="shape=mxgraph.gcp2.cloud_pub_sub;fillColor=#0F9D58;fontColor=#ffffff;strokeColor=none;fontSize=8;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="260" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Loader Function -->
+        <mxCell id="loader" value="loader&#xa;Cloud Function" style="shape=mxgraph.gcp2.cloud_functions;fillColor=#0F9D58;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="260" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- BigQuery Curated -->
+        <mxCell id="bq" value="BigQuery&#xa;curated dataset" style="shape=mxgraph.gcp2.bigquery;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="120" width="100" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- Firestore -->
+        <mxCell id="firestore" value="Firestore&#xa;(Job State)" style="shape=mxgraph.gcp2.cloud_firestore;fillColor=#F4B400;fontColor=#ffffff;strokeColor=none;fontSize=10;" vertex="1" parent="1">
+          <mxGeometry x="380" y="280" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Vertex AI -->
+        <mxCell id="vertex" value="Vertex AI&#xa;K-Means Pipeline" style="shape=mxgraph.gcp2.ai_platform;fillColor=#9C27B0;fontColor=#ffffff;strokeColor=none;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1280" y="430" width="120" height="70" as="geometry" />
+        </mxCell>
+
+        <!-- BQ player_features_v -->
+        <mxCell id="bq-view" value="player_features_v&#xa;(BQ View)" style="shape=mxgraph.gcp2.bigquery;fillColor=#7B1FA2;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1130" y="430" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- BQ player_clusters -->
+        <mxCell id="bq-clusters" value="player_clusters&#xa;(BQ Table)" style="shape=mxgraph.gcp2.bigquery;fillColor=#7B1FA2;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="430" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Model Endpoint -->
+        <mxCell id="endpoint" value="Vertex AI&#xa;Endpoint" style="shape=mxgraph.gcp2.ai_platform;fillColor=#E040FB;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="1440" y="540" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Artifact Registry -->
+        <mxCell id="ar" value="Artifact&#xa;Registry" style="shape=mxgraph.gcp2.container_registry;fillColor=#4285F4;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="180" y="280" width="80" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub Actions -->
+        <mxCell id="github" value="GitHub Actions&#xa;CI/CD (WIF)" style="shape=mxgraph.gcp2.cloud_build;fillColor=#455A64;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="30" y="280" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Pub/Sub pipeline-failed -->
+        <mxCell id="ps-failed" value="Pub/Sub&#xa;pipeline-failed" style="shape=mxgraph.gcp2.cloud_pub_sub;fillColor=#DB4437;fontColor=#ffffff;strokeColor=none;fontSize=8;" vertex="1" parent="1">
+          <mxGeometry x="580" y="400" width="100" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- Cloudflare DNS -->
+        <mxCell id="dns" value="Cloudflare&#xa;DNS" style="shape=mxgraph.gcp2.cloud_dns;fillColor=#0F9D58;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="30" y="30" width="80" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- KMS -->
+        <mxCell id="kms" value="Cloud KMS&#xa;(CMEK)" style="shape=mxgraph.gcp2.key_management_service;fillColor=#455A64;fontColor=#ffffff;strokeColor=none;fontSize=9;" vertex="1" parent="1">
+          <mxGeometry x="780" y="120" width="80" height="60" as="geometry" />
+        </mxCell>
+
+        <!-- ARROWS -->
+
+        <!-- User → LB → SPA -->
+        <mxCell id="e1" edge="1" source="dns" target="lb" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" source="lb" target="spa" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" source="user" target="spa" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- SPA → Upload API -->
+        <mxCell id="e4" value="POST /init" style="fontSize=8;fontColor=#666666;" edge="1" source="spa" target="upload-api" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Upload API → Firestore -->
+        <mxCell id="e5" value="job doc" style="fontSize=8;fontColor=#666666;" edge="1" source="upload-api" target="firestore" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Browser → Bronze (signed URL) -->
+        <mxCell id="e6" value="PUT (signed URL)" style="fontSize=8;fontColor=#666666;" edge="1" source="user" target="bronze" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Bronze → Pub/Sub -->
+        <mxCell id="e7" value="OBJECT_FINALIZE" style="fontSize=8;fontColor=#666666;" edge="1" source="bronze" target="ps-uploaded" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Pub/Sub → Validator -->
+        <mxCell id="e8" edge="1" source="ps-uploaded" target="validator" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Validator → Silver -->
+        <mxCell id="e9" value="masked data" style="fontSize=8;fontColor=#666666;" edge="1" source="validator" target="silver" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Validator → Rejected -->
+        <mxCell id="e10" value="invalid" style="fontSize=8;fontColor=#666666;" edge="1" source="validator" target="rejected" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Silver → Pub/Sub validation-complete -->
+        <mxCell id="e11" edge="1" source="silver" target="ps-validated" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Pub/Sub → Loader -->
+        <mxCell id="e12" edge="1" source="ps-validated" target="loader" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Loader → BigQuery -->
+        <mxCell id="e13" value="BQ load" style="fontSize=8;fontColor=#666666;" edge="1" source="loader" target="bq" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- BigQuery → BQ View -->
+        <mxCell id="e14" edge="1" source="bq" target="bq-view" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- BQ View → Vertex AI -->
+        <mxCell id="e15" value="features" style="fontSize=8;fontColor=#666666;" edge="1" source="bq-view" target="vertex" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Vertex AI → player_clusters -->
+        <mxCell id="e16" value="clusters" style="fontSize=8;fontColor=#666666;" edge="1" source="vertex" target="bq-clusters" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Vertex AI → Endpoint -->
+        <mxCell id="e17" value="deploy" style="fontSize=8;fontColor=#666666;" edge="1" source="vertex" target="endpoint" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub → AR -->
+        <mxCell id="e18" edge="1" source="github" target="ar" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- GitHub → SPA (deploy) -->
+        <mxCell id="e19" value="deploy" style="fontSize=8;fontColor=#666666;dashed=1;" edge="1" source="github" target="spa" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Failed paths -->
+        <mxCell id="e20" style="dashed=1;strokeColor=#DB4437;" edge="1" source="validator" target="ps-failed" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- KMS encryption indicator -->
+        <mxCell id="e21" style="dashed=1;strokeColor=#999999;" edge="1" source="kms" target="bronze" parent="1">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- Legend -->
+        <mxCell id="legend-bg" value="" style="rounded=1;whiteSpace=wrap;fillColor=#f5f5f5;strokeColor=#e0e0e0;" vertex="1" parent="1">
+          <mxGeometry x="30" y="520" width="300" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-title" value="Legend" style="text;fontSize=11;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="525" width="100" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-1" value="Bronze (Raw, immutable)" style="text;fontSize=9;fontColor=#F4B400;" vertex="1" parent="1">
+          <mxGeometry x="40" y="545" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-2" value="Silver (Validated, PII masked)" style="text;fontSize=9;fontColor=#4285F4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="562" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-3" value="Gold (BigQuery curated)" style="text;fontSize=9;fontColor=#4285F4;" vertex="1" parent="1">
+          <mxGeometry x="40" y="579" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-4" value="ML (Vertex AI K-Means)" style="text;fontSize=9;fontColor=#9C27B0;" vertex="1" parent="1">
+          <mxGeometry x="40" y="596" width="200" height="15" as="geometry" />
+        </mxCell>
+        <mxCell id="legend-5" value="Error path (pipeline-failed)" style="text;fontSize=9;fontColor=#DB4437;" vertex="1" parent="1">
+          <mxGeometry x="40" y="613" width="200" height="15" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
