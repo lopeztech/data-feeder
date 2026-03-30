@@ -84,6 +84,22 @@ export async function fetchPreview(jobId: string): Promise<StagePreview> {
   return res.json() as Promise<StagePreview>;
 }
 
+export async function bulkDeleteJobs(jobIds: string[]): Promise<void> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/jobs/delete`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ jobIds }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText })) as { error?: string };
+    throw new Error(body.error || `Bulk delete failed (${res.status})`);
+  }
+}
+
 export async function deleteJob(jobId: string): Promise<void> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};

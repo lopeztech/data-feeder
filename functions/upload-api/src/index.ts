@@ -75,6 +75,12 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: POST /jobs/delete
+  if (req.method === 'POST' && req.path === '/jobs/delete') {
+    handleBulkDelete(req, res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -219,6 +225,35 @@ async function handleDelete(
   } catch (err) {
     console.error('Delete error:', err);
     res.status(500).json({ error: 'Failed to delete job' });
+  }
+}
+
+async function handleBulkDelete(
+  req: { body: unknown },
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const { jobIds } = req.body as { jobIds?: string[] };
+    if (!jobIds || !Array.isArray(jobIds) || jobIds.length === 0) {
+      res.status(400).json({ error: 'Missing or empty jobIds array' });
+      return;
+    }
+
+    if (jobIds.length > 100) {
+      res.status(400).json({ error: 'Cannot delete more than 100 jobs at once' });
+      return;
+    }
+
+    const batch = firestore.batch();
+    for (const id of jobIds) {
+      batch.delete(firestore.collection('jobs').doc(id));
+    }
+    await batch.commit();
+
+    res.status(200).json({ deleted: jobIds.length, jobIds });
+  } catch (err) {
+    console.error('Bulk delete error:', err);
+    res.status(500).json({ error: 'Failed to delete jobs' });
   }
 }
 

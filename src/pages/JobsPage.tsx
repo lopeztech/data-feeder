@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
-import { listJobs, retriggerJob, fetchPreview, deleteJob } from '../lib/uploadService';
+import { listJobs, retriggerJob, fetchPreview, deleteJob, bulkDeleteJobs } from '../lib/uploadService';
 import type { StagePreview } from '../lib/uploadService';
 import { PipelineJob, JobStatus } from '../types';
 
@@ -365,6 +365,7 @@ export default function JobsPage() {
   const [selected, setSelected] = useState<PipelineJob | null>(null);
   const [liveJobs, setLiveJobs] = useState<PipelineJob[]>([]);
   const [loading, setLoading] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const isGuest = user?.role === 'guest';
 
   const fetchJobs = useCallback(async () => {
@@ -399,6 +400,36 @@ export default function JobsPage() {
       alert(err instanceof Error ? err.message : 'Delete failed');
     }
   }, [fetchJobs]);
+
+  const handleBulkDelete = useCallback(async () => {
+    if (checked.size === 0) return;
+    if (!confirm(`Delete ${checked.size} job${checked.size > 1 ? 's' : ''}?`)) return;
+    try {
+      await bulkDeleteJobs(Array.from(checked));
+      setChecked(new Set());
+      fetchJobs();
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      alert(err instanceof Error ? err.message : 'Bulk delete failed');
+    }
+  }, [checked, fetchJobs]);
+
+  const toggleCheck = useCallback((jobId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setChecked(prev => {
+      const next = new Set(prev);
+      if (next.has(jobId)) next.delete(jobId); else next.add(jobId);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback((filteredJobs: PipelineJob[]) => {
+    if (checked.size === filteredJobs.length) {
+      setChecked(new Set());
+    } else {
+      setChecked(new Set(filteredJobs.map(j => j.job_id)));
+    }
+  }, [checked.size]);
 
   useEffect(() => {
     if (!isGuest && user) fetchJobs();
@@ -473,15 +504,45 @@ export default function JobsPage() {
         ))}
       </div>
 
+      {/* Bulk action bar */}
+      {!isGuest && checked.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 px-4 py-2.5 bg-brand-50 border border-brand-200 rounded-lg">
+          <p className="text-sm font-medium text-brand-700 flex-1">
+            {checked.size} job{checked.size > 1 ? 's' : ''} selected
+          </p>
+          <button
+            onClick={() => setChecked(new Set())}
+            className="text-xs text-gray-500 hover:text-gray-700 transition"
+          >
+            Clear
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-medium hover:bg-red-700 transition"
+          >
+            Delete selected
+          </button>
+        </div>
+      )}
+
       {/* Mobile card list */}
       <div className="md:hidden space-y-3">
         {filtered.map((job) => (
           <div
             key={job.job_id}
             onClick={() => setSelected(job)}
-            className="bg-white border border-gray-200 rounded-xl p-4 active:bg-gray-50 cursor-pointer transition"
+            className={`bg-white border rounded-xl p-4 active:bg-gray-50 cursor-pointer transition ${checked.has(job.job_id) ? 'border-brand-400 ring-1 ring-brand-200' : 'border-gray-200'}`}
           >
             <div className="flex items-start justify-between gap-3 mb-2">
+              {!isGuest && (
+                <input
+                  type="checkbox"
+                  checked={checked.has(job.job_id)}
+                  onChange={() => {}}
+                  onClick={(e) => toggleCheck(job.job_id, e)}
+                  className="mt-1 rounded border-gray-300 text-brand-600 focus:ring-brand-500 flex-shrink-0"
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-gray-900 truncate">{job.filename}</p>
                 <p className="text-xs text-gray-400">{job.dataset} · {formatBytes(job.file_size_bytes)}</p>
@@ -506,6 +567,16 @@ export default function JobsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50">
+              {!isGuest && (
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && checked.size === filtered.length}
+                    onChange={() => toggleAll(filtered)}
+                    className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                  />
+                </th>
+              )}
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">File</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dataset</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
@@ -518,8 +589,19 @@ export default function JobsPage() {
               <tr
                 key={job.job_id}
                 onClick={() => setSelected(job)}
-                className="hover:bg-gray-50 cursor-pointer transition"
+                className={`hover:bg-gray-50 cursor-pointer transition ${checked.has(job.job_id) ? 'bg-brand-50' : ''}`}
               >
+                {!isGuest && (
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={checked.has(job.job_id)}
+                      onChange={() => {}}
+                      onClick={(e) => toggleCheck(job.job_id, e)}
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                    />
+                  </td>
+                )}
                 <td className="px-4 py-3">
                   <p className="font-medium text-gray-900 truncate max-w-[200px]">{job.filename}</p>
                   <p className="text-xs text-gray-400">{formatBytes(job.file_size_bytes)}</p>
@@ -536,7 +618,7 @@ export default function JobsPage() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-400 text-sm">
+                <td colSpan={!isGuest ? 6 : 5} className="px-4 py-12 text-center text-gray-400 text-sm">
                   No jobs match the selected filter.
                 </td>
               </tr>
