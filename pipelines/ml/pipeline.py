@@ -11,6 +11,7 @@ PROJECT_ID = "data-feeder-lcd"
 REGION = "australia-southeast1"
 BQ_VIEW = f"{PROJECT_ID}.curated.player_features_v"
 BQ_DATASET = "curated"
+GCS_BUCKET = "gs://data-feeder-lcd-ml-artifacts"
 PIPELINE_NAME = "player-role-clustering"
 
 
@@ -23,6 +24,7 @@ def player_clustering_pipeline(
     region: str = REGION,
     bq_view: str = BQ_VIEW,
     bq_dataset: str = BQ_DATASET,
+    gcs_bucket: str = GCS_BUCKET,
     min_k: int = 3,
     max_k: int = 10,
 ):
@@ -57,6 +59,7 @@ def player_clustering_pipeline(
         metrics=train_task.outputs["metrics"],
         project_id=project_id,
         region=region,
+        gcs_bucket=gcs_bucket,
     ).after(evaluate_task)
 
 

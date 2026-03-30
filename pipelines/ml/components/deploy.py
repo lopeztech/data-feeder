@@ -15,6 +15,7 @@ def deploy_model(
     metrics: dsl.Input[dsl.Artifact],
     project_id: str,
     region: str,
+    gcs_bucket: str,
     model_display_name: str = "player-role-kmeans",
     endpoint_display_name: str = "player-role-endpoint",
 ) -> str:
@@ -25,7 +26,7 @@ def deploy_model(
     import joblib
     from google.cloud import aiplatform
 
-    aiplatform.init(project=project_id, location=region)
+    aiplatform.init(project=project_id, location=region, staging_bucket=gcs_bucket)
 
     with open(metrics.path) as f:
         metrics_data = json.load(f)
