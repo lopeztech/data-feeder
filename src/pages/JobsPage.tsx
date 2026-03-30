@@ -39,6 +39,114 @@ function StatusBadge({ status }: { status: JobStatus }) {
 
 const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
 
+const PIPELINE_STAGES = [
+  { key: 'UPLOADING', label: 'Upload', sublabel: 'Browser → GCS Bronze', color: 'gray' },
+  { key: 'VALIDATING', label: 'Validate', sublabel: 'Schema check + PII mask', color: 'orange' },
+  { key: 'TRANSFORMING', label: 'Transform', sublabel: 'Silver → BigQuery', color: 'blue' },
+  { key: 'LOADED', label: 'Loaded', sublabel: 'Available in BigQuery', color: 'green' },
+] as const;
+
+const STATUS_ORDER: Record<string, number> = {
+  UPLOADING: 0, VALIDATING: 1, TRANSFORMING: 2, LOADED: 3, FAILED: -1, REJECTED: -1,
+};
+
+function PipelineStepper({ job }: { job: PipelineJob }) {
+  const currentIdx = STATUS_ORDER[job.status] ?? -1;
+  const isFailed = job.status === 'FAILED' || job.status === 'REJECTED';
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Pipeline progress</p>
+        {IN_PROGRESS.includes(job.status) && (
+          <span className="inline-flex items-center gap-1.5 text-xs text-brand-600 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+            Processing
+          </span>
+        )}
+      </div>
+
+      {/* Stepper */}
+      <div className="flex items-start gap-0">
+        {PIPELINE_STAGES.map((stage, idx) => {
+          const done = currentIdx > idx;
+          const active = currentIdx === idx && !isFailed;
+          const upcoming = currentIdx < idx;
+          const failedAtStage = isFailed && currentIdx === idx;
+
+          return (
+            <div key={stage.key} className="flex-1 flex flex-col items-center relative">
+              {/* Connector line */}
+              {idx > 0 && (
+                <div className={`absolute top-3 right-1/2 w-full h-0.5 -translate-y-1/2 transition-colors duration-500 ${
+                  done ? 'bg-green-400' : active ? 'bg-brand-300' : 'bg-gray-200'
+                }`} />
+              )}
+
+              {/* Circle */}
+              <div className={`relative z-10 w-6 h-6 rounded-full flex items-center justify-center transition-all duration-500 ${
+                done ? 'bg-green-500' :
+                active ? 'bg-brand-600 ring-4 ring-brand-100' :
+                failedAtStage ? 'bg-red-500 ring-4 ring-red-100' :
+                'bg-gray-200'
+              }`}>
+                {done ? (
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : active ? (
+                  <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                ) : failedAtStage ? (
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                ) : (
+                  <div className="w-2 h-2 rounded-full bg-gray-400" />
+                )}
+              </div>
+
+              {/* Label */}
+              <p className={`mt-1.5 text-xs font-medium text-center transition-colors duration-500 ${
+                done ? 'text-green-700' :
+                active ? 'text-brand-700' :
+                failedAtStage ? 'text-red-700' :
+                upcoming ? 'text-gray-400' : 'text-gray-500'
+              }`}>{stage.label}</p>
+              <p className={`text-[10px] text-center ${
+                done || active ? 'text-gray-500' : 'text-gray-300'
+              }`}>{stage.sublabel}</p>
+
+              {/* Path info */}
+              {idx === 0 && job.bronze_path && done && (
+                <p className="text-[10px] text-orange-500 font-mono truncate max-w-[120px] mt-0.5">{job.bronze_path.split('/').pop()}</p>
+              )}
+              {idx === 1 && job.silver_path && done && (
+                <p className="text-[10px] text-blue-500 font-mono mt-0.5">Silver</p>
+              )}
+              {idx === 3 && job.bq_table && done && (
+                <p className="text-[10px] text-green-600 font-mono mt-0.5">{job.bq_table}</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Failed/Rejected banner */}
+      {isFailed && (
+        <div className="mt-3 flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-lg">
+          <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p className="text-xs text-red-700">
+            <span className="font-medium">{job.status}</span>
+            {job.error && <span> — {job.error}</span>}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type PreviewTab = 'details' | 'bronze' | 'silver' | 'curated';
 
 function DataTable({ rows }: { rows: Record<string, unknown>[] }) {
@@ -141,35 +249,8 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
           {/* Details tab */}
           {tab === 'details' && (
             <div className="space-y-6">
-              {/* Pipeline stages */}
-              <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">Pipeline stages</p>
-                <div className="space-y-3">
-                  {[
-                    { label: 'Bronze (Raw)', path: job.bronze_path, done: !!job.bronze_path, color: 'orange' },
-                    { label: 'Silver (Validated)', path: job.silver_path, done: !!job.silver_path, color: 'blue' },
-                    { label: 'Gold (Curated)', path: job.bq_table ? `BigQuery → ${job.bq_table}` : null, done: !!job.bq_table, color: 'green' },
-                  ].map(({ label, path, done, color }) => (
-                    <div key={label} className="flex items-start gap-3">
-                      <div className={`mt-0.5 w-5 h-5 rounded-full flex-shrink-0 flex items-center justify-center ${
-                        done ? `bg-${color}-100` : 'bg-gray-100'
-                      }`}>
-                        {done ? (
-                          <svg className={`w-3 h-3 text-${color}-600`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        ) : (
-                          <div className="w-2 h-2 rounded-full bg-gray-300" />
-                        )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-700">{label}</p>
-                        {path && <p className="text-xs text-gray-400 font-mono truncate mt-0.5">{path}</p>}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* Pipeline progress stepper */}
+              <PipelineStepper job={job} />
 
               {/* PII Masking */}
               {job.pii_masked && job.pii_masked.length > 0 && (
@@ -219,13 +300,6 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
                 </div>
               )}
 
-              {/* Error */}
-              {job.error && (
-                <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
-                  <p className="text-xs font-semibold text-red-700 mb-1">Error</p>
-                  <p className="text-sm text-red-600">{job.error}</p>
-                </div>
-              )}
 
               {/* Actions */}
               <div className="flex gap-3">
@@ -329,6 +403,24 @@ export default function JobsPage() {
   useEffect(() => {
     if (!isGuest && user) fetchJobs();
   }, [user, isGuest, fetchJobs]);
+
+  // Auto-poll when there are active (in-progress) jobs
+  const hasActiveJobs = liveJobs.some(j => IN_PROGRESS.includes(j.status));
+  useEffect(() => {
+    if (isGuest || !hasActiveJobs) return;
+    const interval = setInterval(fetchJobs, 5000);
+    return () => clearInterval(interval);
+  }, [isGuest, hasActiveJobs, fetchJobs]);
+
+  // Keep selected job in sync with live data
+  useEffect(() => {
+    if (selected && !isGuest) {
+      const updated = liveJobs.find(j => j.job_id === selected.job_id);
+      if (updated && updated.updated_at !== selected.updated_at) {
+        setSelected(updated);
+      }
+    }
+  }, [liveJobs, selected, isGuest]);
 
   const jobs = isGuest ? MOCK_JOBS : liveJobs;
 
