@@ -28,3 +28,7 @@ dist-ssr
 
 # ML pipeline artifacts
 pipelines/ml/pipeline.json
+
+# Python
+__pycache__/
+*.pyc
