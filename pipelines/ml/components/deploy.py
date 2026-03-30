@@ -68,7 +68,7 @@ class Predictor:
         labels={
             "pipeline": "player-role-clustering",
             "k": str(metrics_data["best_k"]),
-            "silhouette": str(metrics_data["best_silhouette"]),
+            "silhouette": str(metrics_data["best_silhouette"]).replace(".", "_"),
         },
     )
     print(f"Model uploaded: {model.resource_name}")
