@@ -17,7 +17,7 @@ env:
   REGION: australia-southeast1
   AR_REPO: data-feeder-images
   PIPELINE_NAME: player-role-clustering
-  SERVICE_ACCOUNT: sa-ml@data-feeder-lcd.iam.gserviceaccount.com
+  SERVICE_ACCOUNT: sa-ml-v@data-feeder-lcd.iam.gserviceaccount.com
   GCS_BUCKET: gs://data-feeder-lcd-ml-artifacts
 
 permissions:
