@@ -68,6 +68,7 @@ def evaluate(
 
     # Write to BigQuery
     output_df = df[["player_id", "cluster_id", "impact_score"]].copy()
+    output_df["player_id"] = output_df["player_id"].astype(str)
     output_df["cluster_id"] = output_df["cluster_id"].astype(int)
 
     client = bigquery.Client(project=project_id, location=region)
