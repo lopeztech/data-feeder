@@ -8,10 +8,10 @@ from kfp import dsl
     packages_to_install=["pandas", "scikit-learn", "joblib", "pyarrow"],
 )
 def train(
-    dataset_path: dsl.InputPath(str),
-    feature_columns_path: dsl.InputPath(str),
-    model_path: dsl.OutputPath(str),
-    metrics_path: dsl.OutputPath(str),
+    dataset: dsl.Input[dsl.Dataset],
+    feature_columns: dsl.Input[dsl.Artifact],
+    model: dsl.Output[dsl.Model],
+    metrics: dsl.Output[dsl.Metrics],
     min_k: int = 3,
     max_k: int = 10,
 ) -> int:
@@ -22,9 +22,9 @@ def train(
     from sklearn.cluster import KMeans
     from sklearn.metrics import silhouette_score
 
-    df = pd.read_parquet(dataset_path)
+    df = pd.read_parquet(dataset.path)
 
-    with open(feature_columns_path) as f:
+    with open(feature_columns.path) as f:
         feature_cols = json.load(f)
 
     X = df[feature_cols].values
@@ -35,10 +35,10 @@ def train(
     results = []
 
     for k in range(min_k, max_k + 1):
-        model = KMeans(n_clusters=k, random_state=42, n_init=10)
-        labels = model.fit_predict(X)
+        km = KMeans(n_clusters=k, random_state=42, n_init=10)
+        labels = km.fit_predict(X)
         score = silhouette_score(X, labels)
-        inertia = model.inertia_
+        inertia = km.inertia_
         results.append({"k": k, "silhouette": round(score, 4), "inertia": round(inertia, 2)})
         print(f"  k={k}: silhouette={score:.4f}, inertia={inertia:.2f}")
 
@@ -50,15 +50,15 @@ def train(
     final_model = KMeans(n_clusters=best_k, random_state=42, n_init=10)
     final_model.fit(X)
 
-    joblib.dump({"model": final_model, "feature_columns": feature_cols}, model_path)
+    joblib.dump({"model": final_model, "feature_columns": feature_cols}, model.path)
 
-    metrics = {
+    metrics_data = {
         "best_k": best_k,
         "best_silhouette": round(best_score, 4),
         "sweep_results": results,
     }
-    with open(metrics_path, "w") as f:
-        json.dump(metrics, f, indent=2)
+    with open(metrics.path, "w") as f:
+        json.dump(metrics_data, f, indent=2)
 
     print(f"Best model: k={best_k}, silhouette={best_score:.4f}")
     return best_k

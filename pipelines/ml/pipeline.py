@@ -34,26 +34,26 @@ def player_clustering_pipeline(
 
     # Step 2: Train
     train_task = train(
-        dataset_path=preprocess_task.outputs["output_gcs_path"],
-        feature_columns_path=preprocess_task.outputs["feature_columns_path"],
+        dataset=preprocess_task.outputs["output_dataset"],
+        feature_columns=preprocess_task.outputs["feature_columns"],
         min_k=min_k,
         max_k=max_k,
     )
 
     # Step 3: Evaluate + write clusters to BigQuery
     evaluate_task = evaluate(
-        dataset_path=preprocess_task.outputs["output_gcs_path"],
-        model_path=train_task.outputs["model_path"],
-        metrics_path=train_task.outputs["metrics_path"],
-        feature_columns_path=preprocess_task.outputs["feature_columns_path"],
+        dataset=preprocess_task.outputs["output_dataset"],
+        model=train_task.outputs["model"],
+        metrics=train_task.outputs["metrics"],
+        feature_columns=preprocess_task.outputs["feature_columns"],
         project_id=project_id,
         bq_dataset=bq_dataset,
     )
 
     # Step 4: Deploy model to Vertex AI endpoint
     deploy_model(
-        model_path=train_task.outputs["model_path"],
-        metrics_path=train_task.outputs["metrics_path"],
+        model=train_task.outputs["model"],
+        metrics=train_task.outputs["metrics"],
         project_id=project_id,
         region=region,
     ).after(evaluate_task)

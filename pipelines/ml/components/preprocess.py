@@ -10,8 +10,8 @@ from kfp import dsl
 def preprocess(
     project_id: str,
     bq_view: str,
-    output_gcs_path: dsl.OutputPath(str),
-    feature_columns_path: dsl.OutputPath(str),
+    output_dataset: dsl.Output[dsl.Dataset],
+    feature_columns: dsl.Output[dsl.Artifact],
 ) -> int:
     """Read features from BigQuery, normalize with StandardScaler, save to GCS."""
     import json
@@ -36,9 +36,9 @@ def preprocess(
     scaled[id_col] = df[id_col].values
 
     # Save
-    scaled.to_parquet(output_gcs_path, index=False)
+    scaled.to_parquet(output_dataset.path, index=False)
 
-    with open(feature_columns_path, "w") as f:
+    with open(feature_columns.path, "w") as f:
         json.dump(feature_cols, f)
 
     print(f"Preprocessed {len(scaled)} players, {len(feature_cols)} features")

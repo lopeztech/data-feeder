@@ -11,13 +11,13 @@ from kfp import dsl
     ],
 )
 def evaluate(
-    dataset_path: dsl.InputPath(str),
-    model_path: dsl.InputPath(str),
-    metrics_path: dsl.InputPath(str),
-    feature_columns_path: dsl.InputPath(str),
+    dataset: dsl.Input[dsl.Dataset],
+    model: dsl.Input[dsl.Model],
+    metrics: dsl.Input[dsl.Metrics],
+    feature_columns: dsl.Input[dsl.Artifact],
     project_id: str,
     bq_dataset: str,
-    report_path: dsl.OutputPath(str),
+    report: dsl.Output[dsl.Artifact],
 ):
     """Assign clusters, analyze, write player_clusters to BigQuery."""
     import json
@@ -26,19 +26,19 @@ def evaluate(
     import numpy as np
     from google.cloud import bigquery
 
-    df = pd.read_parquet(dataset_path)
-    bundle = joblib.load(model_path)
-    model = bundle["model"]
+    df = pd.read_parquet(dataset.path)
+    bundle = joblib.load(model.path)
+    km = bundle["model"]
     feature_cols = bundle["feature_columns"]
 
-    with open(metrics_path) as f:
-        metrics = json.load(f)
+    with open(metrics.path) as f:
+        metrics_data = json.load(f)
 
     X = df[feature_cols].values
-    df["cluster_id"] = model.predict(X)
+    df["cluster_id"] = km.predict(X)
 
     # Cluster analysis
-    n_clusters = model.n_clusters
+    n_clusters = km.n_clusters
     analysis = []
     for cid in range(n_clusters):
         mask = df["cluster_id"] == cid
@@ -60,7 +60,7 @@ def evaluate(
         print(f"Cluster {cid}: {size} players ({100*size/len(df):.1f}%), top features: {list(top_features.keys())}")
 
     # Impact score: players who outperform their cluster centroid
-    centroids = model.cluster_centers_
+    centroids = km.cluster_centers_
     distances = np.linalg.norm(X - centroids[df["cluster_id"].values], axis=1)
     df["impact_score"] = round(1 / (1 + distances), 4)
 
@@ -82,12 +82,12 @@ def evaluate(
     print(f"Wrote {len(output_df)} rows to {table_id}")
 
     # Report
-    report = {
+    report_data = {
         "n_clusters": n_clusters,
-        "best_silhouette": metrics["best_silhouette"],
+        "best_silhouette": metrics_data["best_silhouette"],
         "total_players": len(df),
         "clusters": analysis,
-        "sweep_results": metrics["sweep_results"],
+        "sweep_results": metrics_data["sweep_results"],
     }
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
+    with open(report.path, "w") as f:
+        json.dump(report_data, f, indent=2)

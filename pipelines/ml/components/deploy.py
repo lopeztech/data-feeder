@@ -8,8 +8,8 @@ from kfp import dsl
     packages_to_install=["google-cloud-aiplatform", "joblib", "scikit-learn"],
 )
 def deploy_model(
-    model_path: dsl.InputPath(str),
-    metrics_path: dsl.InputPath(str),
+    model: dsl.Input[dsl.Model],
+    metrics: dsl.Input[dsl.Metrics],
     project_id: str,
     region: str,
     model_display_name: str = "player-role-kmeans",
@@ -24,13 +24,13 @@ def deploy_model(
 
     aiplatform.init(project=project_id, location=region)
 
-    with open(metrics_path) as f:
-        metrics = json.load(f)
+    with open(metrics.path) as f:
+        metrics_data = json.load(f)
 
     # Prepare model artifacts directory
     artifact_dir = "/tmp/model_artifacts"
     os.makedirs(artifact_dir, exist_ok=True)
-    shutil.copy(model_path, os.path.join(artifact_dir, "model.joblib"))
+    shutil.copy(model.path, os.path.join(artifact_dir, "model.joblib"))
 
     # Write a simple predictor script
     predictor_code = '''
@@ -63,8 +63,8 @@ class Predictor:
         serving_container_image_uri=f"{region}-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest",
         labels={
             "pipeline": "player-role-clustering",
-            "k": str(metrics["best_k"]),
-            "silhouette": str(metrics["best_silhouette"]),
+            "k": str(metrics_data["best_k"]),
+            "silhouette": str(metrics_data["best_silhouette"]),
         },
     )
     print(f"Model uploaded: {model.resource_name}")
