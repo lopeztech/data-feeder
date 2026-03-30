@@ -9,7 +9,7 @@ from kfp import dsl
 )
 def deploy_model(
     model: dsl.Input[dsl.Model],
-    metrics: dsl.Input[dsl.Metrics],
+    metrics: dsl.Input[dsl.Artifact],
     project_id: str,
     region: str,
     model_display_name: str = "player-role-kmeans",

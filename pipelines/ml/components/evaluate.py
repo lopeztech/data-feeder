@@ -13,7 +13,7 @@ from kfp import dsl
 def evaluate(
     dataset: dsl.Input[dsl.Dataset],
     model: dsl.Input[dsl.Model],
-    metrics: dsl.Input[dsl.Metrics],
+    metrics: dsl.Input[dsl.Artifact],
     feature_columns: dsl.Input[dsl.Artifact],
     project_id: str,
     bq_dataset: str,

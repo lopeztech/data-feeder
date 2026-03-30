@@ -11,7 +11,7 @@ def train(
     dataset: dsl.Input[dsl.Dataset],
     feature_columns: dsl.Input[dsl.Artifact],
     model: dsl.Output[dsl.Model],
-    metrics: dsl.Output[dsl.Metrics],
+    metrics: dsl.Output[dsl.Artifact],
     min_k: int = 3,
     max_k: int = 10,
 ) -> int:
