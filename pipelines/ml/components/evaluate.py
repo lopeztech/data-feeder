@@ -63,7 +63,7 @@ def evaluate(
     # Impact score: players who outperform their cluster centroid
     centroids = km.cluster_centers_
     distances = np.linalg.norm(X - centroids[df["cluster_id"].values], axis=1)
-    df["impact_score"] = round(1 / (1 + distances), 4)
+    df["impact_score"] = np.round(1 / (1 + distances), 4)
 
     # Write to BigQuery
     output_df = df[["player_id", "cluster_id", "impact_score"]].copy()
