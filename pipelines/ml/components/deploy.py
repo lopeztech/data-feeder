@@ -31,34 +31,11 @@ def deploy_model(
     with open(metrics.path) as f:
         metrics_data = json.load(f)
 
-    # Prepare model artifacts directory
+    # Prepare model artifacts — extract bare sklearn model for pre-built container
     artifact_dir = "/tmp/model_artifacts"
     os.makedirs(artifact_dir, exist_ok=True)
-    shutil.copy(model.path, os.path.join(artifact_dir, "model.joblib"))
-
-    # Write a simple predictor script
-    predictor_code = '''
-import joblib
-import numpy as np
-import os
-
-class Predictor:
-    def __init__(self):
-        model_dir = os.environ.get("AIP_STORAGE_URI", "/tmp/model_artifacts")
-        bundle = joblib.load(os.path.join(model_dir, "model.joblib"))
-        self.model = bundle["model"]
-        self.feature_columns = bundle["feature_columns"]
-
-    def predict(self, instances):
-        X = np.array(instances)
-        clusters = self.model.predict(X).tolist()
-        centroids = self.model.cluster_centers_
-        distances = np.linalg.norm(X - centroids[clusters], axis=1)
-        impact_scores = (1 / (1 + distances)).tolist()
-        return [{"cluster_id": c, "impact_score": round(s, 4)} for c, s in zip(clusters, impact_scores)]
-'''
-    with open(os.path.join(artifact_dir, "predictor.py"), "w") as f:
-        f.write(predictor_code)
+    bundle = joblib.load(model.path)
+    joblib.dump(bundle["model"], os.path.join(artifact_dir, "model.joblib"))
 
     # Upload model
     model = aiplatform.Model.upload(
