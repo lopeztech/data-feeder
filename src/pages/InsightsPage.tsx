@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { fetchClusters } from '../lib/uploadService';
 import type { ClusterSummary, ClusterPlayer } from '../lib/uploadService';
+import { MOCK_CLUSTERS, MOCK_CLUSTER_PLAYERS } from '../data/mockClusters';
 
 const CLUSTER_COLORS = [
   { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700', bar: 'bg-blue-500' },
@@ -41,8 +42,8 @@ function StatBar({ value, max, color }: { value: number; max: number; color: str
 export default function InsightsPage() {
   const { user } = useAuth();
   const isGuest = user?.role === 'guest';
-  const [clusters, setClusters] = useState<ClusterSummary[]>([]);
-  const [players, setPlayers] = useState<ClusterPlayer[]>([]);
+  const [clusters, setClusters] = useState<ClusterSummary[]>(isGuest ? MOCK_CLUSTERS : []);
+  const [players, setPlayers] = useState<ClusterPlayer[]>(isGuest ? MOCK_CLUSTER_PLAYERS : []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<number | null>(null);
@@ -81,8 +82,8 @@ export default function InsightsPage() {
       </div>
 
       {isGuest && (
-        <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <p className="text-sm font-medium text-amber-800">Sign in with Google to view ML insights.</p>
+        <div className="p-4 mb-6 bg-amber-50 border border-amber-200 rounded-xl">
+          <p className="text-sm font-medium text-amber-800">You're viewing demo data. Sign in with Google to see live ML insights from your pipeline.</p>
         </div>
       )}
 

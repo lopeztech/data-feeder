@@ -1,0 +1,101 @@
+import type { ClusterSummary, ClusterPlayer } from '../lib/uploadService';
+
+export const MOCK_CLUSTERS: ClusterSummary[] = [
+  {
+    cluster_id: 0,
+    player_count: 84,
+    avg_impact_score: 0.6123,
+    avg_goals: 0.42,
+    avg_assists: 0.31,
+    avg_tackles: 2.15,
+    avg_interceptions: 1.87,
+    avg_saves: 28.6,
+    avg_rating: 6.58,
+    avg_minutes: 2340,
+  },
+  {
+    cluster_id: 1,
+    player_count: 312,
+    avg_impact_score: 0.4891,
+    avg_goals: 1.24,
+    avg_assists: 1.56,
+    avg_tackles: 12.8,
+    avg_interceptions: 6.4,
+    avg_saves: 0.02,
+    avg_rating: 6.72,
+    avg_minutes: 2180,
+  },
+  {
+    cluster_id: 2,
+    player_count: 198,
+    avg_impact_score: 0.5234,
+    avg_goals: 8.7,
+    avg_assists: 5.2,
+    avg_tackles: 3.1,
+    avg_interceptions: 1.2,
+    avg_saves: 0.01,
+    avg_rating: 7.14,
+    avg_minutes: 2410,
+  },
+  {
+    cluster_id: 3,
+    player_count: 245,
+    avg_impact_score: 0.4102,
+    avg_goals: 2.1,
+    avg_assists: 6.8,
+    avg_tackles: 5.6,
+    avg_interceptions: 3.2,
+    avg_saves: 0.0,
+    avg_rating: 6.91,
+    avg_minutes: 2290,
+  },
+  {
+    cluster_id: 4,
+    player_count: 276,
+    avg_impact_score: 0.3987,
+    avg_goals: 1.8,
+    avg_assists: 2.1,
+    avg_tackles: 9.4,
+    avg_interceptions: 4.1,
+    avg_saves: 0.03,
+    avg_rating: 6.65,
+    avg_minutes: 2050,
+  },
+];
+
+export const MOCK_CLUSTER_PLAYERS: ClusterPlayer[] = [
+  // Cluster 0 — Goalkeepers
+  { cluster_id: 0, player_id: 'p-gk-001', name: 'Marc-André ter Stegen', position: 'GK', league: 'La Liga', goals: 0, assists: 0, appearances: 34, tackles: 0, saves: 102, rating: 6.82, impact_score: 0.891 },
+  { cluster_id: 0, player_id: 'p-gk-002', name: 'Alisson Becker', position: 'GK', league: 'Premier League', goals: 0, assists: 1, appearances: 36, tackles: 0, saves: 98, rating: 6.91, impact_score: 0.874 },
+  { cluster_id: 0, player_id: 'p-gk-003', name: 'Thibaut Courtois', position: 'GK', league: 'La Liga', goals: 0, assists: 0, appearances: 28, tackles: 0, saves: 84, rating: 6.75, impact_score: 0.812 },
+  { cluster_id: 0, player_id: 'p-gk-004', name: 'Ederson Moraes', position: 'GK', league: 'Premier League', goals: 0, assists: 2, appearances: 35, tackles: 0, saves: 76, rating: 6.68, impact_score: 0.756 },
+  { cluster_id: 0, player_id: 'p-gk-005', name: 'Jan Oblak', position: 'GK', league: 'La Liga', goals: 0, assists: 0, appearances: 33, tackles: 0, saves: 91, rating: 6.79, impact_score: 0.743 },
+
+  // Cluster 1 — Defensive Anchors
+  { cluster_id: 1, player_id: 'p-def-001', name: 'Virgil van Dijk', position: 'CB', league: 'Premier League', goals: 3, assists: 1, appearances: 35, tackles: 42, saves: 0, rating: 7.12, impact_score: 0.834 },
+  { cluster_id: 1, player_id: 'p-def-002', name: 'Rúben Dias', position: 'CB', league: 'Premier League', goals: 1, assists: 2, appearances: 33, tackles: 38, saves: 0, rating: 7.04, impact_score: 0.798 },
+  { cluster_id: 1, player_id: 'p-def-003', name: 'Antonio Rüdiger', position: 'CB', league: 'La Liga', goals: 2, assists: 0, appearances: 31, tackles: 35, saves: 0, rating: 6.88, impact_score: 0.761 },
+  { cluster_id: 1, player_id: 'p-def-004', name: 'William Saliba', position: 'CB', league: 'Premier League', goals: 2, assists: 1, appearances: 36, tackles: 44, saves: 0, rating: 7.08, impact_score: 0.723 },
+  { cluster_id: 1, player_id: 'p-def-005', name: 'Kim Min-jae', position: 'CB', league: 'Bundesliga', goals: 1, assists: 0, appearances: 29, tackles: 36, saves: 0, rating: 6.94, impact_score: 0.691 },
+
+  // Cluster 2 — Goal Threats
+  { cluster_id: 2, player_id: 'p-att-001', name: 'Erling Haaland', position: 'ST', league: 'Premier League', goals: 27, assists: 5, appearances: 35, tackles: 4, saves: 0, rating: 7.45, impact_score: 0.912 },
+  { cluster_id: 2, player_id: 'p-att-002', name: 'Kylian Mbappé', position: 'LW', league: 'La Liga', goals: 22, assists: 8, appearances: 34, tackles: 6, saves: 0, rating: 7.52, impact_score: 0.887 },
+  { cluster_id: 2, player_id: 'p-att-003', name: 'Harry Kane', position: 'ST', league: 'Bundesliga', goals: 26, assists: 7, appearances: 33, tackles: 3, saves: 0, rating: 7.38, impact_score: 0.856 },
+  { cluster_id: 2, player_id: 'p-att-004', name: 'Lautaro Martínez', position: 'ST', league: 'Serie A', goals: 19, assists: 4, appearances: 32, tackles: 5, saves: 0, rating: 7.21, impact_score: 0.801 },
+  { cluster_id: 2, player_id: 'p-att-005', name: 'Viktor Gyökeres', position: 'ST', league: 'Primeira Liga', goals: 24, assists: 6, appearances: 31, tackles: 7, saves: 0, rating: 7.31, impact_score: 0.778 },
+
+  // Cluster 3 — Creative Playmakers
+  { cluster_id: 3, player_id: 'p-mid-001', name: 'Kevin De Bruyne', position: 'CAM', league: 'Premier League', goals: 6, assists: 14, appearances: 28, tackles: 8, saves: 0, rating: 7.34, impact_score: 0.869 },
+  { cluster_id: 3, player_id: 'p-mid-002', name: 'Martin Ødegaard', position: 'CAM', league: 'Premier League', goals: 7, assists: 11, appearances: 32, tackles: 10, saves: 0, rating: 7.28, impact_score: 0.821 },
+  { cluster_id: 3, player_id: 'p-mid-003', name: 'Florian Wirtz', position: 'CAM', league: 'Bundesliga', goals: 9, assists: 10, appearances: 30, tackles: 6, saves: 0, rating: 7.19, impact_score: 0.793 },
+  { cluster_id: 3, player_id: 'p-mid-004', name: 'Jamal Musiala', position: 'AM', league: 'Bundesliga', goals: 8, assists: 9, appearances: 31, tackles: 7, saves: 0, rating: 7.11, impact_score: 0.754 },
+  { cluster_id: 3, player_id: 'p-mid-005', name: 'Bruno Fernandes', position: 'CAM', league: 'Premier League', goals: 5, assists: 12, appearances: 34, tackles: 9, saves: 0, rating: 7.06, impact_score: 0.712 },
+
+  // Cluster 4 — Ball Winners
+  { cluster_id: 4, player_id: 'p-dm-001', name: 'Rodri', position: 'CDM', league: 'Premier League', goals: 3, assists: 4, appearances: 34, tackles: 52, saves: 0, rating: 7.22, impact_score: 0.845 },
+  { cluster_id: 4, player_id: 'p-dm-002', name: 'Declan Rice', position: 'CDM', league: 'Premier League', goals: 4, assists: 5, appearances: 35, tackles: 48, saves: 0, rating: 7.08, impact_score: 0.789 },
+  { cluster_id: 4, player_id: 'p-dm-003', name: 'Aurélien Tchouaméni', position: 'CDM', league: 'La Liga', goals: 2, assists: 2, appearances: 30, tackles: 41, saves: 0, rating: 6.92, impact_score: 0.734 },
+  { cluster_id: 4, player_id: 'p-dm-004', name: 'Moises Caicedo', position: 'CDM', league: 'Premier League', goals: 1, assists: 3, appearances: 33, tackles: 46, saves: 0, rating: 6.85, impact_score: 0.698 },
+  { cluster_id: 4, player_id: 'p-dm-005', name: 'Amadou Onana', position: 'CDM', league: 'Premier League', goals: 2, assists: 1, appearances: 31, tackles: 39, saves: 0, rating: 6.78, impact_score: 0.652 },
+];
