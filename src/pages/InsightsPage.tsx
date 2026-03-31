@@ -1,8 +1,58 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { fetchClusters } from '../lib/uploadService';
+import { fetchClusters, listJobs } from '../lib/uploadService';
 import type { ClusterSummary, ClusterPlayer } from '../lib/uploadService';
-import { MOCK_CLUSTERS, MOCK_CLUSTER_PLAYERS } from '../data/mockClusters';
+import type { PipelineJob } from '../types';
+import { MOCK_CLUSTERS, MOCK_CLUSTER_PLAYERS, MOCK_LINEAGE_JOBS } from '../data/mockClusters';
+
+const ML_SOURCE_TABLES = ['all_player_stats', 'all_player_profiles'];
+const SOURCE_COLORS: Record<string, { border: string; bg: string; icon: string }> = {
+  all_player_stats: { border: 'border-l-teal-500', bg: 'bg-teal-50', icon: 'text-teal-600' },
+  all_player_profiles: { border: 'border-l-indigo-500', bg: 'bg-indigo-50', icon: 'text-indigo-600' },
+};
+
+function filterLineageJobs(jobs: PipelineJob[]): PipelineJob[] {
+  return jobs.filter(j =>
+    j.status === 'LOADED' &&
+    j.bq_table &&
+    ML_SOURCE_TABLES.some(t => j.bq_table!.includes(t))
+  );
+}
+
+interface TableGroup {
+  table: string;
+  jobs: PipelineJob[];
+  totalLoaded: number;
+  totalSize: number;
+  latestDate: string;
+}
+
+function groupByTable(jobs: PipelineJob[]): TableGroup[] {
+  const map = new Map<string, PipelineJob[]>();
+  for (const j of jobs) {
+    const key = ML_SOURCE_TABLES.find(t => j.bq_table?.includes(t)) ?? j.bq_table ?? 'unknown';
+    const arr = map.get(key) ?? [];
+    arr.push(j);
+    map.set(key, arr);
+  }
+  return Array.from(map.entries()).map(([table, tableJobs]) => ({
+    table,
+    jobs: tableJobs,
+    totalLoaded: tableJobs.reduce((s, j) => s + (j.stats?.loaded ?? 0), 0),
+    totalSize: tableJobs.reduce((s, j) => s + j.file_size_bytes, 0),
+    latestDate: tableJobs.reduce((latest, j) => j.updated_at > latest ? j.updated_at : latest, ''),
+  }));
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
 
 const CLUSTER_COLORS = [
   { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700', bar: 'bg-blue-500' },
@@ -44,17 +94,20 @@ export default function InsightsPage() {
   const isGuest = user?.role === 'guest';
   const [clusters, setClusters] = useState<ClusterSummary[]>(isGuest ? MOCK_CLUSTERS : []);
   const [players, setPlayers] = useState<ClusterPlayer[]>(isGuest ? MOCK_CLUSTER_PLAYERS : []);
+  const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>(isGuest ? MOCK_LINEAGE_JOBS : []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<number | null>(null);
+  const [lineageOpen, setLineageOpen] = useState(true);
 
   useEffect(() => {
     if (isGuest) return;
     setLoading(true);
-    fetchClusters()
-      .then(data => {
+    Promise.all([fetchClusters(), listJobs().catch(() => [] as PipelineJob[])])
+      .then(([data, allJobs]) => {
         setClusters(data.clusters);
         setPlayers(data.players);
+        setLineageJobs(filterLineageJobs(allJobs));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
@@ -99,6 +152,84 @@ export default function InsightsPage() {
           <p className="text-xs text-red-500 mt-1">The ML pipeline may not have run yet. Upload data and trigger the pipeline first.</p>
         </div>
       )}
+
+      {/* Data Lineage */}
+      {!loading && !error && clusters.length > 0 && lineageJobs.length > 0 && (() => {
+        const groups = groupByTable(lineageJobs);
+        const totalUploads = lineageJobs.length;
+        return (
+          <div className="mb-6 bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <button
+              onClick={() => setLineageOpen(!lineageOpen)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zM9 12h6M12 9v6" />
+                </svg>
+                <span className="text-sm font-semibold text-gray-700">Data Lineage</span>
+                <span className="text-xs text-gray-400">{groups.length} datasets · {totalUploads} uploads</span>
+              </div>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${lineageOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {lineageOpen && (
+              <div className="px-4 pb-4">
+                <div className="grid grid-cols-1 md:grid-cols-[1fr_40px_1fr] gap-4 items-center">
+                  {/* Source datasets */}
+                  <div className="space-y-3">
+                    {groups.map(g => {
+                      const colors = SOURCE_COLORS[g.table] ?? { border: 'border-l-gray-400', bg: 'bg-gray-50', icon: 'text-gray-500' };
+                      return (
+                        <div key={g.table} className={`border border-gray-100 rounded-lg p-3 border-l-4 ${colors.border}`}>
+                          <div className="flex items-center gap-2 mb-1">
+                            <svg className={`w-3.5 h-3.5 ${colors.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
+                            </svg>
+                            <span className="text-xs font-bold text-gray-700">{g.table}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                            <span>{g.jobs.length} {g.jobs.length === 1 ? 'upload' : 'uploads'}</span>
+                            <span>{g.totalLoaded.toLocaleString()} rows</span>
+                            <span>{formatBytes(g.totalSize)}</span>
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">Last: {formatDate(g.latestDate)}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Connector arrow */}
+                  <div className="hidden md:flex flex-col items-center justify-center gap-1">
+                    <div className="w-px flex-1 border-l-2 border-dashed border-gray-200" />
+                    <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                    <div className="w-px flex-1 border-l-2 border-dashed border-gray-200" />
+                  </div>
+
+                  {/* ML output */}
+                  <div className="border border-gray-100 rounded-lg p-3 border-l-4 border-l-brand-500">
+                    <div className="flex items-center gap-2 mb-1">
+                      <svg className="w-3.5 h-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                      <span className="text-xs font-bold text-gray-700">K-Means Clustering</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                      <span>{clusters.length} clusters</span>
+                      <span>{totalPlayers.toLocaleString()} players</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Vertex AI · curated.player_clusters</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {!loading && !error && clusters.length > 0 && (
         <div className="space-y-8">

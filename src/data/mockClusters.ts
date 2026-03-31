@@ -1,4 +1,5 @@
 import type { ClusterSummary, ClusterPlayer } from '../lib/uploadService';
+import type { PipelineJob } from '../types';
 
 export const MOCK_CLUSTERS: ClusterSummary[] = [
   {
@@ -98,4 +99,52 @@ export const MOCK_CLUSTER_PLAYERS: ClusterPlayer[] = [
   { cluster_id: 4, player_id: 'p-dm-003', name: 'Aurélien Tchouaméni', position: 'CDM', league: 'La Liga', goals: 2, assists: 2, appearances: 30, tackles: 41, saves: 0, rating: 6.92, impact_score: 0.734 },
   { cluster_id: 4, player_id: 'p-dm-004', name: 'Moises Caicedo', position: 'CDM', league: 'Premier League', goals: 1, assists: 3, appearances: 33, tackles: 46, saves: 0, rating: 6.85, impact_score: 0.698 },
   { cluster_id: 4, player_id: 'p-dm-005', name: 'Amadou Onana', position: 'CDM', league: 'Premier League', goals: 2, assists: 1, appearances: 31, tackles: 39, saves: 0, rating: 6.78, impact_score: 0.652 },
+];
+
+export const MOCK_LINEAGE_JOBS: PipelineJob[] = [
+  {
+    job_id: 'mock-stats-001',
+    dataset: 'all_player_stats',
+    filename: 'epl_player_stats_2025.csv',
+    file_size_bytes: 2_840_000,
+    status: 'LOADED',
+    uploaded_by: 'demo@datafeeder.dev',
+    created_at: '2026-03-20T14:22:00Z',
+    updated_at: '2026-03-20T14:35:12Z',
+    bronze_path: 'gs://demo-raw/all_player_stats/job-mock-stats-001/epl_player_stats_2025.csv',
+    silver_path: 'gs://demo-staging/all_player_stats/job-mock-stats-001/data.parquet',
+    bq_table: 'curated.all_player_stats',
+    stats: { total_records: 842, valid: 839, rejected: 3, loaded: 839 },
+    error: null,
+  },
+  {
+    job_id: 'mock-stats-002',
+    dataset: 'all_player_stats',
+    filename: 'laliga_player_stats_2025.csv',
+    file_size_bytes: 1_560_000,
+    status: 'LOADED',
+    uploaded_by: 'demo@datafeeder.dev',
+    created_at: '2026-03-22T09:10:00Z',
+    updated_at: '2026-03-22T09:18:45Z',
+    bronze_path: 'gs://demo-raw/all_player_stats/job-mock-stats-002/laliga_player_stats_2025.csv',
+    silver_path: 'gs://demo-staging/all_player_stats/job-mock-stats-002/data.parquet',
+    bq_table: 'curated.all_player_stats',
+    stats: { total_records: 476, valid: 476, rejected: 0, loaded: 476 },
+    error: null,
+  },
+  {
+    job_id: 'mock-profiles-001',
+    dataset: 'all_player_profiles',
+    filename: 'player_profiles_combined.json',
+    file_size_bytes: 3_210_000,
+    status: 'LOADED',
+    uploaded_by: 'demo@datafeeder.dev',
+    created_at: '2026-03-19T11:05:00Z',
+    updated_at: '2026-03-19T11:14:30Z',
+    bronze_path: 'gs://demo-raw/all_player_profiles/job-mock-profiles-001/player_profiles_combined.json',
+    silver_path: 'gs://demo-staging/all_player_profiles/job-mock-profiles-001/data.parquet',
+    bq_table: 'curated.all_player_profiles',
+    stats: { total_records: 1_115, valid: 1_115, rejected: 0, loaded: 1_115 },
+    error: null,
+  },
 ];
