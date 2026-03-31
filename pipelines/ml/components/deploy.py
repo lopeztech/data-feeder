@@ -1,4 +1,4 @@
-"""Deploy: upload model to Vertex AI Model Registry and deploy to endpoint."""
+"""Deploy: upload model to Vertex AI Model Registry."""
 
 from kfp import dsl
 
@@ -17,12 +17,10 @@ def deploy_model(
     region: str,
     gcs_bucket: str,
     model_display_name: str = "player-role-kmeans",
-    endpoint_display_name: str = "player-role-endpoint",
 ) -> str:
-    """Upload model to registry and deploy to endpoint."""
+    """Upload model to Vertex AI Model Registry."""
     import json
     import os
-    import shutil
     import joblib
     from google.cloud import aiplatform
 
@@ -31,14 +29,14 @@ def deploy_model(
     with open(metrics.path) as f:
         metrics_data = json.load(f)
 
-    # Prepare model artifacts — extract bare sklearn model for pre-built container
+    # Prepare model artifacts — extract bare sklearn model
     artifact_dir = "/tmp/model_artifacts"
     os.makedirs(artifact_dir, exist_ok=True)
     bundle = joblib.load(model.path)
     joblib.dump(bundle["model"], os.path.join(artifact_dir, "model.joblib"))
 
-    # Upload model
-    model = aiplatform.Model.upload(
+    # Upload to Model Registry
+    registered = aiplatform.Model.upload(
         display_name=model_display_name,
         artifact_uri=artifact_dir,
         serving_container_image_uri="us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-3:latest",
@@ -48,33 +46,5 @@ def deploy_model(
             "silhouette": str(metrics_data["best_silhouette"]).replace(".", "_"),
         },
     )
-    print(f"Model uploaded: {model.resource_name}")
-
-    # Get or create endpoint
-    endpoints = aiplatform.Endpoint.list(
-        filter=f'display_name="{endpoint_display_name}"',
-    )
-
-    if endpoints:
-        endpoint = endpoints[0]
-        print(f"Using existing endpoint: {endpoint.resource_name}")
-    else:
-        endpoint = aiplatform.Endpoint.create(
-            display_name=endpoint_display_name,
-        )
-        print(f"Created endpoint: {endpoint.resource_name}")
-
-    # Deploy (undeploy existing models first for clean swap)
-    if endpoint.traffic_split:
-        for deployed_id in list(endpoint.traffic_split.keys()):
-            endpoint.undeploy(deployed_model_id=deployed_id)
-
-    model.deploy(
-        endpoint=endpoint,
-        machine_type="n1-standard-2",
-        min_replica_count=1,
-        max_replica_count=1,
-    )
-
-    print(f"Model deployed to endpoint: {endpoint.resource_name}")
-    return endpoint.resource_name
+    print(f"Model registered: {registered.resource_name}")
+    return registered.resource_name
