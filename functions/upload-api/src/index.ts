@@ -282,7 +282,7 @@ async function handleClusters(
           ROUND(AVG(SAFE_CAST(s.rating AS FLOAT64)), 4) AS avg_rating,
           ROUND(AVG(SAFE_CAST(s.minutes_played AS FLOAT64)), 0) AS avg_minutes
         FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
-        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON c.player_id = s.player_id
+        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON SAFE_CAST(c.player_id AS INT64) = s.player_id
         GROUP BY c.cluster_id
         ORDER BY c.cluster_id
       `,
@@ -305,8 +305,8 @@ async function handleClusters(
           SAFE_CAST(s.saves AS INT64) AS saves,
           ROUND(SAFE_CAST(s.rating AS FLOAT64), 2) AS rating
         FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
-        JOIN \`${BQ_CURATED_DATASET}.all_player_profiles\` p ON c.player_id = p.player_id
-        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON c.player_id = s.player_id
+        JOIN \`${BQ_CURATED_DATASET}.all_player_profiles\` p ON SAFE_CAST(c.player_id AS INT64) = p.player_id
+        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON SAFE_CAST(c.player_id AS INT64) = s.player_id
         QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.impact_score DESC) <= 10
         ORDER BY c.cluster_id, c.impact_score DESC
       `,
