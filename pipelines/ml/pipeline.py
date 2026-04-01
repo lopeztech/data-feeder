@@ -2,10 +2,12 @@
 
 from kfp import dsl, compiler
 
+from components.validate_data import validate_data
 from components.preprocess import preprocess
 from components.train import train
 from components.evaluate import evaluate
 from components.deploy import deploy_model
+from components.log_metrics import log_metrics
 
 PROJECT_ID = "data-feeder-lcd"
 REGION = "australia-southeast1"
@@ -28,11 +30,18 @@ def player_clustering_pipeline(
     min_k: int = 3,
     max_k: int = 10,
 ):
+    # Step 0: Validate data quality
+    validate_task = validate_data(
+        project_id=project_id,
+        bq_view=bq_view,
+    )
+
     # Step 1: Preprocess
     preprocess_task = preprocess(
         project_id=project_id,
         bq_view=bq_view,
     )
+    preprocess_task.after(validate_task)
 
     # Step 2: Train
     train_task = train(
@@ -54,12 +63,22 @@ def player_clustering_pipeline(
     )
 
     # Step 4: Deploy model to Vertex AI endpoint
-    deploy_model(
+    deploy_task = deploy_model(
         model=train_task.outputs["model"],
         metrics=train_task.outputs["metrics"],
         project_id=project_id,
         region=region,
         gcs_bucket=gcs_bucket,
+    )
+    deploy_task.after(evaluate_task)
+
+    # Step 5: Log metrics to BigQuery
+    log_metrics(
+        metrics_artifact=train_task.outputs["metrics"],
+        project_id=project_id,
+        region=region,
+        bq_dataset=bq_dataset,
+        pipeline_name="player-role-clustering",
     ).after(evaluate_task)
 
 

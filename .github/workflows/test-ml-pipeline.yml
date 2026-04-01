@@ -1,0 +1,27 @@
+name: Test ML Pipeline
+
+on:
+  pull_request:
+    paths:
+      - 'pipelines/ml/**'
+  push:
+    branches: [main]
+    paths:
+      - 'pipelines/ml/**'
+
+jobs:
+  test:
+    name: Pipeline Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        working-directory: pipelines/ml
+        run: pip install -r requirements.txt pytest
+      - name: Run tests
+        working-directory: pipelines/ml
+        run: python -m pytest tests/ -v

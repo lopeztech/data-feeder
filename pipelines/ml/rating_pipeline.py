@@ -2,7 +2,9 @@
 
 from kfp import dsl, compiler
 
+from components.validate_data import validate_data
 from components.predict_ratings import predict_ratings
+from components.log_metrics import log_metrics
 
 PROJECT_ID = "data-feeder-lcd"
 REGION = "australia-southeast1"
@@ -21,13 +23,29 @@ def player_rating_pipeline(
     bq_view: str = BQ_VIEW,
     bq_dataset: str = BQ_DATASET,
 ):
-    # Single step: reads raw data from BQ, trains, writes predictions
+    # Step 0: Validate data quality
+    validate_task = validate_data(
+        project_id=project_id,
+        bq_view=bq_view,
+    )
+
+    # Step 1: Read raw data, train, write predictions
     # Does NOT use preprocess since it needs un-normalized rating as target
-    predict_ratings(
+    predict_task = predict_ratings(
         project_id=project_id,
         region=region,
         bq_view=bq_view,
         bq_dataset=bq_dataset,
+    )
+    predict_task.after(validate_task)
+
+    # Step 2: Log metrics to BigQuery
+    log_metrics(
+        metrics_artifact=predict_task.outputs["report"],
+        project_id=project_id,
+        region=region,
+        bq_dataset=bq_dataset,
+        pipeline_name="player-rating-prediction",
     )
 
 

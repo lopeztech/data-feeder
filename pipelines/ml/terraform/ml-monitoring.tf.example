@@ -1,0 +1,78 @@
+# Add this to your platform-infra repo for Vertex AI pipeline failure alerting.
+# Adjust the notification channel to your email or Slack webhook.
+
+# --- Notification channel (email) ---
+resource "google_monitoring_notification_channel" "ml_alerts_email" {
+  project      = "data-feeder-lcd"
+  display_name = "ML Pipeline Alerts"
+  type         = "email"
+
+  labels = {
+    email_address = "alerts@lopezcloud.dev"  # Change to your email
+  }
+}
+
+# --- Alert: Vertex AI Pipeline failure ---
+resource "google_monitoring_alert_policy" "vertex_pipeline_failure" {
+  project      = "data-feeder-lcd"
+  display_name = "Vertex AI Pipeline Failed"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Pipeline run failed"
+
+    condition_matched_log {
+      filter = <<-EOT
+        resource.type="aiplatform.googleapis.com/PipelineJob"
+        jsonPayload.state="PIPELINE_STATE_FAILED"
+      EOT
+    }
+  }
+
+  alert_strategy {
+    notification_rate_limit {
+      period = "300s"
+    }
+  }
+
+  notification_channels = [
+    google_monitoring_notification_channel.ml_alerts_email.name,
+  ]
+
+  documentation {
+    content   = "A Vertex AI ML pipeline has failed. Check the Vertex AI console for details: https://console.cloud.google.com/vertex-ai/pipelines?project=data-feeder-lcd"
+    mime_type = "text/markdown"
+  }
+}
+
+# --- Log-based metric for pipeline completions (enables dashboard charting) ---
+resource "google_logging_metric" "pipeline_completions" {
+  project = "data-feeder-lcd"
+  name    = "vertex_pipeline_completions"
+  filter  = <<-EOT
+    resource.type="aiplatform.googleapis.com/PipelineJob"
+    jsonPayload.state=("PIPELINE_STATE_SUCCEEDED" OR "PIPELINE_STATE_FAILED")
+  EOT
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+
+    labels {
+      key         = "state"
+      value_type  = "STRING"
+      description = "Pipeline completion state"
+    }
+
+    labels {
+      key         = "pipeline_name"
+      value_type  = "STRING"
+      description = "Display name of the pipeline"
+    }
+  }
+
+  label_extractors = {
+    "state"         = "EXTRACT(jsonPayload.state)"
+    "pipeline_name" = "EXTRACT(jsonPayload.displayName)"
+  }
+}

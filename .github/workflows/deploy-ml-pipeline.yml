@@ -56,6 +56,13 @@ jobs:
             --use_legacy_sql=false \
             < pipelines/ml/sql/player_features_view.sql
 
+      - name: Create pipeline_runs table
+        run: |
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/pipeline_runs_table.sql
+
       # --- Clustering pipeline ---
       - name: Compile clustering pipeline
         working-directory: pipelines/ml
