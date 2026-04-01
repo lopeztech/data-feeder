@@ -2,7 +2,6 @@
 
 from kfp import dsl, compiler
 
-from components.preprocess import preprocess
 from components.predict_ratings import predict_ratings
 
 PROJECT_ID = "data-feeder-lcd"
@@ -22,18 +21,12 @@ def player_rating_pipeline(
     bq_view: str = BQ_VIEW,
     bq_dataset: str = BQ_DATASET,
 ):
-    # Step 1: Preprocess (reuse from clustering pipeline)
-    preprocess_task = preprocess(
-        project_id=project_id,
-        bq_view=bq_view,
-    )
-
-    # Step 2: Train + predict + write to BigQuery
+    # Single step: reads raw data from BQ, trains, writes predictions
+    # Does NOT use preprocess since it needs un-normalized rating as target
     predict_ratings(
-        dataset=preprocess_task.outputs["output_dataset"],
-        feature_columns=preprocess_task.outputs["feature_columns"],
         project_id=project_id,
         region=region,
+        bq_view=bq_view,
         bq_dataset=bq_dataset,
     )
 

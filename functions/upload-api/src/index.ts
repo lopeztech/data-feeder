@@ -348,8 +348,6 @@ async function discoverModels(): Promise<DiscoveredModel[]> {
         JOIN \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\` t ON c.table_name = t.table_name
         WHERE c.column_name = @idCol
           AND t.table_type = 'BASE TABLE'
-          AND c.table_name = @tbl
-          OR (c.column_name = @idCol AND t.table_type = 'BASE TABLE')
       `,
       params: { idCol },
     });
@@ -634,6 +632,7 @@ async function handlePredictions(
 
     // Discover label column from source tables
     const stringCols: { col: string; alias: string }[] = [];
+    const seenCols = new Set<string>();
     const joins: string[] = [];
 
     for (let i = 0; i < sourceTables.length; i++) {
@@ -646,7 +645,10 @@ async function handlePredictions(
         params: { tbl },
       });
       for (const c of cols as { column_name: string }[]) {
-        if (c.column_name !== idCol) stringCols.push({ col: c.column_name, alias });
+        if (c.column_name !== idCol && !seenCols.has(c.column_name)) {
+          seenCols.add(c.column_name);
+          stringCols.push({ col: c.column_name, alias });
+        }
       }
     }
 
@@ -660,7 +662,7 @@ async function handlePredictions(
       query: `
         SELECT
           COUNT(*) AS total,
-          ROUND(CORR(predicted_rating, actual_rating), 4) AS r2_approx,
+          ROUND(POWER(CORR(predicted_rating, actual_rating), 2), 4) AS r2_approx,
           ROUND(AVG(ABS(residual)), 4) AS mae,
           ROUND(SQRT(AVG(residual * residual)), 4) AS rmse,
           ROUND(AVG(residual), 4) AS mean_residual

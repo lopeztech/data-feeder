@@ -12,36 +12,43 @@ from kfp import dsl
     ],
 )
 def predict_ratings(
-    dataset: dsl.Input[dsl.Dataset],
-    feature_columns: dsl.Input[dsl.Artifact],
     project_id: str,
     region: str,
+    bq_view: str,
     bq_dataset: str,
     report: dsl.Output[dsl.Artifact],
 ):
-    """Train GradientBoosting, cross-validate, write player_rating_predictions to BigQuery."""
+    """Read raw features, train GradientBoosting on real rating values, write predictions to BQ.
+
+    Unlike clustering/anomaly detection which use the normalized dataset from preprocess,
+    this component reads raw data directly so that predicted and actual ratings are in
+    their original scale (not StandardScaler z-scores).
+    """
     import json
     import pandas as pd
     import numpy as np
     from sklearn.ensemble import GradientBoostingRegressor
+    from sklearn.preprocessing import StandardScaler
     from sklearn.model_selection import cross_val_predict, cross_val_score
     from google.cloud import bigquery
 
-    df = pd.read_parquet(dataset.path)
+    # Read raw data from the feature view
+    client = bigquery.Client(project=project_id)
+    df = client.query(f"SELECT * FROM `{bq_view}`").to_dataframe()
 
-    with open(feature_columns.path) as f:
-        all_features = json.load(f)
-
-    # Target is 'rating' — remove it from feature set
+    id_col = "player_id"
     target_col = "rating"
-    if target_col not in all_features:
-        raise ValueError(f"'{target_col}' not in feature columns: {all_features}")
+    drop_cols = [id_col, "position", "league", target_col]
+    feature_cols = [c for c in df.columns if c not in drop_cols]
 
-    feature_cols = [c for c in all_features if c != target_col]
-    X = df[feature_cols].values
-    y = df[target_col].values
+    # Fill NaN, normalize features (but NOT target)
+    X_raw = df[feature_cols].fillna(0).astype(float)
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X_raw)
+    y = df[target_col].fillna(0).astype(float).values
 
-    # Train with cross-validation to get unbiased predictions
+    print(f"Training on {len(df)} records, {len(feature_cols)} features, target range: {y.min():.2f} - {y.max():.2f}")
+
     model = GradientBoostingRegressor(
         n_estimators=200,
         max_depth=5,
@@ -75,13 +82,13 @@ def predict_ratings(
 
     # Write to BigQuery
     output_df = pd.DataFrame({
-        "player_id": df["player_id"].astype(str),
+        "player_id": df[id_col].astype(str),
         "predicted_rating": predicted,
         "actual_rating": actual,
         "residual": residuals,
     })
 
-    client = bigquery.Client(project=project_id, location=region)
+    bq_client = bigquery.Client(project=project_id, location=region)
     table_id = f"{project_id}.{bq_dataset}.player_rating_predictions"
     job_config = bigquery.LoadJobConfig(
         write_disposition="WRITE_TRUNCATE",
@@ -92,7 +99,7 @@ def predict_ratings(
             bigquery.SchemaField("residual", "FLOAT64"),
         ],
     )
-    client.load_table_from_dataframe(output_df, table_id, job_config=job_config).result()
+    bq_client.load_table_from_dataframe(output_df, table_id, job_config=job_config).result()
     print(f"Wrote {len(output_df)} rows to {table_id}")
 
     # Report
