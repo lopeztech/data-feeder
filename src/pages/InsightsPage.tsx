@@ -1,23 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { fetchClusters, listJobs } from '../lib/uploadService';
-import type { ClusterSummary, ClusterPlayer } from '../lib/uploadService';
+import type { ClusterSummary, ClusterRecord } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
-import { MOCK_CLUSTERS, MOCK_CLUSTER_PLAYERS, MOCK_LINEAGE_JOBS } from '../data/mockClusters';
-
-const ML_SOURCE_TABLES = ['all_player_stats', 'all_player_profiles'];
-const SOURCE_COLORS: Record<string, { border: string; bg: string; icon: string }> = {
-  all_player_stats: { border: 'border-l-teal-500', bg: 'bg-teal-50', icon: 'text-teal-600' },
-  all_player_profiles: { border: 'border-l-indigo-500', bg: 'bg-indigo-50', icon: 'text-indigo-600' },
-};
-
-function filterLineageJobs(jobs: PipelineJob[]): PipelineJob[] {
-  return jobs.filter(j =>
-    j.status === 'LOADED' &&
-    j.bq_table &&
-    ML_SOURCE_TABLES.some(t => j.bq_table!.includes(t))
-  );
-}
+import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS } from '../data/mockClusters';
 
 interface TableGroup {
   table: string;
@@ -30,7 +17,7 @@ interface TableGroup {
 function groupByTable(jobs: PipelineJob[]): TableGroup[] {
   const map = new Map<string, PipelineJob[]>();
   for (const j of jobs) {
-    const key = ML_SOURCE_TABLES.find(t => j.bq_table?.includes(t)) ?? j.bq_table ?? 'unknown';
+    const key = j.bq_table ?? j.dataset;
     const arr = map.get(key) ?? [];
     arr.push(j);
     map.set(key, arr);
@@ -69,15 +56,27 @@ function clusterColor(id: number) {
   return CLUSTER_COLORS[id % CLUSTER_COLORS.length];
 }
 
-function inferClusterRole(c: ClusterSummary): string {
-  if (c.avg_saves > 2) return 'Goalkeepers';
-  if (c.avg_tackles > 10 && c.avg_interceptions > 5) return 'Defensive Anchors';
-  if (c.avg_goals > 5 && c.avg_assists > 3) return 'Goal Threats';
-  if (c.avg_assists > 4) return 'Creative Playmakers';
-  if (c.avg_tackles > 8) return 'Ball Winners';
-  if (c.avg_minutes > 2000 && c.avg_rating > 6.5) return 'Reliable Starters';
-  if (c.avg_goals > 3) return 'Attacking Contributors';
-  return `Cluster ${c.cluster_id}`;
+/** Pick the top N numeric metric keys from clusters for display (skip near-zero averages). */
+function pickDisplayMetrics(clusters: ClusterSummary[], maxCount = 4): string[] {
+  if (clusters.length === 0) return [];
+  const allKeys = new Set<string>();
+  for (const c of clusters) {
+    for (const k of Object.keys(c.metrics)) allKeys.add(k);
+  }
+  // Rank by max value across clusters (higher variance = more interesting)
+  return Array.from(allKeys)
+    .map(k => ({ key: k, max: Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0))) }))
+    .filter(e => e.max > 0.01)
+    .sort((a, b) => b.max - a.max)
+    .slice(0, maxCount)
+    .map(e => e.key);
+}
+
+function metricLabel(key: string): string {
+  return key
+    .replace(/^avg_/, '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, c => c.toUpperCase());
 }
 
 function StatBar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -89,48 +88,94 @@ function StatBar({ value, max, color }: { value: number; max: number; color: str
   );
 }
 
+/** Pick string fields from records (for the table columns). */
+function pickRecordFields(records: ClusterRecord[], maxCount = 3): string[] {
+  if (records.length === 0) return [];
+  const allKeys = new Set<string>();
+  for (const r of records) {
+    for (const [k, v] of Object.entries(r.fields)) {
+      if (typeof v === 'string') allKeys.add(k);
+    }
+  }
+  return Array.from(allKeys).slice(0, maxCount);
+}
+
+/** Pick numeric fields from records for the table. */
+function pickRecordNumericFields(records: ClusterRecord[], maxCount = 4): string[] {
+  if (records.length === 0) return [];
+  const allKeys = new Set<string>();
+  for (const r of records) {
+    for (const [k, v] of Object.entries(r.fields)) {
+      if (typeof v === 'number') allKeys.add(k);
+    }
+  }
+  return Array.from(allKeys).slice(0, maxCount);
+}
+
 export default function InsightsPage() {
+  const { dataset } = useParams<{ dataset: string }>();
   const { user } = useAuth();
   const isGuest = user?.role === 'guest';
-  const [clusters, setClusters] = useState<ClusterSummary[]>(isGuest ? MOCK_CLUSTERS : []);
-  const [players, setPlayers] = useState<ClusterPlayer[]>(isGuest ? MOCK_CLUSTER_PLAYERS : []);
-  const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>(isGuest ? MOCK_LINEAGE_JOBS : []);
-  const [loading, setLoading] = useState(false);
+  const [clusters, setClusters] = useState<ClusterSummary[]>([]);
+  const [records, setRecords] = useState<ClusterRecord[]>([]);
+  const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<number | null>(null);
   const [lineageOpen, setLineageOpen] = useState(true);
 
   useEffect(() => {
-    if (isGuest) return;
+    if (!dataset) return;
+
+    if (isGuest) {
+      setClusters(MOCK_CLUSTERS);
+      setRecords(MOCK_CLUSTER_RECORDS);
+      setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => j.dataset === dataset));
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    Promise.all([fetchClusters(), listJobs().catch(() => [] as PipelineJob[])])
+    Promise.all([
+      fetchClusters(dataset),
+      listJobs().catch(() => [] as PipelineJob[]),
+    ])
       .then(([data, allJobs]) => {
         setClusters(data.clusters);
-        setPlayers(data.players);
-        setLineageJobs(filterLineageJobs(allJobs));
+        setRecords(data.records);
+        setLineageJobs(allJobs.filter(j => j.status === 'LOADED' && j.dataset === dataset));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [isGuest]);
+  }, [dataset, isGuest]);
 
-  const totalPlayers = clusters.reduce((sum, c) => sum + c.player_count, 0);
-  const maxGoals = Math.max(...clusters.map(c => c.avg_goals), 1);
-  const maxAssists = Math.max(...clusters.map(c => c.avg_assists), 1);
-  const maxTackles = Math.max(...clusters.map(c => c.avg_tackles), 1);
-  const maxSaves = Math.max(...clusters.map(c => c.avg_saves), 1);
+  const totalRecords = clusters.reduce((sum, c) => sum + c.record_count, 0);
+  const displayMetrics = pickDisplayMetrics(clusters);
+  const metricMaxes = Object.fromEntries(
+    displayMetrics.map(k => [k, Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0)), 1)])
+  );
 
-  // Hidden impact: high impact score but low conventional stats (goals/assists)
-  const hiddenImpact = players
-    .filter(p => p.impact_score > 0.5)
-    .sort((a, b) => b.impact_score - a.impact_score)
+  // Top scoring records across all clusters
+  const topRecords = [...records]
+    .sort((a, b) => b.score - a.score)
     .slice(0, 10);
+
+  const stringFields = pickRecordFields(records);
+  const numericFields = pickRecordNumericFields(records);
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
+      {/* Back link + header */}
       <div className="mb-8">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Vertex AI Insights</h1>
+        <Link to="/insights" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 transition mb-3">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          All Datasets
+        </Link>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{dataset}</h1>
         <p className="text-gray-500 mt-1 text-sm">
-          K-Means clustering analysis — player role identification and hidden impact detection
+          K-Means clustering analysis and data lineage
         </p>
       </div>
 
@@ -154,7 +199,7 @@ export default function InsightsPage() {
       )}
 
       {/* Data Lineage */}
-      {!loading && !error && clusters.length > 0 && lineageJobs.length > 0 && (() => {
+      {!loading && !error && lineageJobs.length > 0 && (() => {
         const groups = groupByTable(lineageJobs);
         const totalUploads = lineageJobs.length;
         return (
@@ -168,7 +213,7 @@ export default function InsightsPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zM9 12h6M12 9v6" />
                 </svg>
                 <span className="text-sm font-semibold text-gray-700">Data Lineage</span>
-                <span className="text-xs text-gray-400">{groups.length} datasets · {totalUploads} uploads</span>
+                <span className="text-xs text-gray-400">{groups.length} {groups.length === 1 ? 'table' : 'tables'} · {totalUploads} uploads</span>
               </div>
               <svg className={`w-4 h-4 text-gray-400 transition-transform ${lineageOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -178,27 +223,24 @@ export default function InsightsPage() {
             {lineageOpen && (
               <div className="px-4 pb-4">
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_40px_1fr] gap-4 items-center">
-                  {/* Source datasets */}
+                  {/* Source uploads */}
                   <div className="space-y-3">
-                    {groups.map(g => {
-                      const colors = SOURCE_COLORS[g.table] ?? { border: 'border-l-gray-400', bg: 'bg-gray-50', icon: 'text-gray-500' };
-                      return (
-                        <div key={g.table} className={`border border-gray-100 rounded-lg p-3 border-l-4 ${colors.border}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <svg className={`w-3.5 h-3.5 ${colors.icon}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
-                            </svg>
-                            <span className="text-xs font-bold text-gray-700">{g.table}</span>
-                          </div>
-                          <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
-                            <span>{g.jobs.length} {g.jobs.length === 1 ? 'upload' : 'uploads'}</span>
-                            <span>{g.totalLoaded.toLocaleString()} rows</span>
-                            <span>{formatBytes(g.totalSize)}</span>
-                          </div>
-                          <p className="text-xs text-gray-400 mt-1">Last: {formatDate(g.latestDate)}</p>
+                    {groups.map(g => (
+                      <div key={g.table} className="border border-gray-100 rounded-lg p-3 border-l-4 border-l-teal-500">
+                        <div className="flex items-center gap-2 mb-1">
+                          <svg className="w-3.5 h-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
+                          </svg>
+                          <span className="text-xs font-bold text-gray-700">{g.table}</span>
                         </div>
-                      );
-                    })}
+                        <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
+                          <span>{g.jobs.length} {g.jobs.length === 1 ? 'upload' : 'uploads'}</span>
+                          <span>{g.totalLoaded.toLocaleString()} rows</span>
+                          <span>{formatBytes(g.totalSize)}</span>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Last: {formatDate(g.latestDate)}</p>
+                      </div>
+                    ))}
                   </div>
 
                   {/* Connector arrow */}
@@ -220,9 +262,9 @@ export default function InsightsPage() {
                     </div>
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
                       <span>{clusters.length} clusters</span>
-                      <span>{totalPlayers.toLocaleString()} players</span>
+                      <span>{totalRecords.toLocaleString()} records</span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">Vertex AI · curated.player_clusters</p>
+                    <p className="text-xs text-gray-400 mt-1">Vertex AI</p>
                   </div>
                 </div>
               </div>
@@ -240,29 +282,26 @@ export default function InsightsPage() {
               <p className="text-2xl font-bold text-gray-900">{clusters.length}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Total Players</p>
-              <p className="text-2xl font-bold text-gray-900">{totalPlayers.toLocaleString()}</p>
+              <p className="text-xs text-gray-400">Total Records</p>
+              <p className="text-2xl font-bold text-gray-900">{totalRecords.toLocaleString()}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Avg Rating</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {(clusters.reduce((s, c) => s + c.avg_rating * c.player_count, 0) / totalPlayers).toFixed(2)}
-              </p>
+              <p className="text-xs text-gray-400">Uploads</p>
+              <p className="text-2xl font-bold text-gray-900">{lineageJobs.length}</p>
             </div>
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Hidden Impact</p>
-              <p className="text-2xl font-bold text-brand-700">{hiddenImpact.length}</p>
+              <p className="text-xs text-gray-400">Top Scored</p>
+              <p className="text-2xl font-bold text-brand-700">{topRecords.length}</p>
             </div>
           </div>
 
           {/* Cluster cards */}
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Player Clusters</h2>
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Clusters</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {clusters.map(c => {
                 const color = clusterColor(c.cluster_id);
-                const role = inferClusterRole(c);
-                const clusterPlayers = players.filter(p => p.cluster_id === c.cluster_id);
+                const clusterRecords = records.filter(r => r.cluster_id === c.cluster_id);
                 const isExpanded = expandedCluster === c.cluster_id;
 
                 return (
@@ -276,59 +315,47 @@ export default function InsightsPage() {
                           <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${color.badge}`}>
                             C{c.cluster_id}
                           </span>
-                          <h3 className={`font-semibold ${color.text}`}>{role}</h3>
+                          <h3 className={`font-semibold ${color.text}`}>
+                            {c.label ?? `Cluster ${c.cluster_id}`}
+                          </h3>
                         </div>
-                        <span className="text-xs text-gray-500">{c.player_count} players</span>
+                        <span className="text-xs text-gray-500">{c.record_count} records</span>
                       </div>
 
                       <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 w-16">Goals</span>
-                          <StatBar value={c.avg_goals} max={maxGoals} color={color.bar} />
-                          <span className="text-xs font-medium text-gray-700 w-8 text-right">{c.avg_goals}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 w-16">Assists</span>
-                          <StatBar value={c.avg_assists} max={maxAssists} color={color.bar} />
-                          <span className="text-xs font-medium text-gray-700 w-8 text-right">{c.avg_assists}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 w-16">Tackles</span>
-                          <StatBar value={c.avg_tackles} max={maxTackles} color={color.bar} />
-                          <span className="text-xs font-medium text-gray-700 w-8 text-right">{c.avg_tackles}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-gray-500 w-16">Saves</span>
-                          <StatBar value={c.avg_saves} max={maxSaves} color={color.bar} />
-                          <span className="text-xs font-medium text-gray-700 w-8 text-right">{c.avg_saves}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between mt-3 pt-2 border-t border-gray-200/50">
-                        <span className="text-xs text-gray-500">Avg rating: <span className="font-medium text-gray-700">{c.avg_rating}</span></span>
-                        <span className="text-xs text-gray-500">Impact: <span className="font-medium text-gray-700">{c.avg_impact_score}</span></span>
+                        {displayMetrics.map(key => (
+                          <div key={key} className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-24 truncate">{metricLabel(key)}</span>
+                            <StatBar value={c.metrics[key] ?? 0} max={metricMaxes[key]} color={color.bar} />
+                            <span className="text-xs font-medium text-gray-700 w-10 text-right">
+                              {(c.metrics[key] ?? 0) % 1 === 0
+                                ? c.metrics[key]
+                                : (c.metrics[key] ?? 0).toFixed(1)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     </button>
 
-                    {/* Expanded: top players */}
-                    {isExpanded && clusterPlayers.length > 0 && (
+                    {/* Expanded: top records */}
+                    {isExpanded && clusterRecords.length > 0 && (
                       <div className="border-t border-gray-200/50 bg-white/50">
                         <div className="px-4 py-2 bg-gray-50/50">
-                          <p className="text-xs font-semibold text-gray-500 uppercase">Top Players</p>
+                          <p className="text-xs font-semibold text-gray-500 uppercase">Top Records</p>
                         </div>
                         <div className="divide-y divide-gray-100">
-                          {clusterPlayers.map(p => (
-                            <div key={p.player_id} className="px-4 py-2 flex items-center gap-3">
+                          {clusterRecords.map(r => (
+                            <div key={r.record_id} className="px-4 py-2 flex items-center gap-3">
                               <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
-                                <p className="text-xs text-gray-400">{p.position} · {p.league}</p>
+                                <p className="text-sm font-medium text-gray-900 truncate">{r.label}</p>
+                                <p className="text-xs text-gray-400">
+                                  {Object.entries(r.fields)
+                                    .filter(([, v]) => typeof v === 'string')
+                                    .map(([, v]) => v)
+                                    .join(' · ')}
+                                </p>
                               </div>
-                              <div className="flex items-center gap-3 text-xs text-gray-600">
-                                <span>{p.goals}G</span>
-                                <span>{p.assists}A</span>
-                                <span>{p.tackles}T</span>
-                                <span className="font-medium text-brand-700">{p.impact_score.toFixed(3)}</span>
-                              </div>
+                              <span className="text-xs font-medium text-brand-700">{r.score.toFixed(3)}</span>
                             </div>
                           ))}
                         </div>
@@ -340,48 +367,50 @@ export default function InsightsPage() {
             </div>
           </div>
 
-          {/* Hidden impact players */}
-          {hiddenImpact.length > 0 && (
+          {/* Top records table */}
+          {topRecords.length > 0 && (
             <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Hidden Impact Players</h2>
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Top Scored Records</h2>
               <p className="text-sm text-gray-500 mb-4">
-                Players with high impact scores — closest to their cluster centroid, representing the archetypal player for their role.
+                Records with the highest proximity score to their cluster centroid.
               </p>
               <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Player</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Record</th>
                         <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Cluster</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Position</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">League</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Goals</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Assists</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Rating</th>
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Impact</th>
+                        {stringFields.map(f => (
+                          <th key={f} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(f)}</th>
+                        ))}
+                        {numericFields.map(f => (
+                          <th key={f} className="text-right px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(f)}</th>
+                        ))}
+                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Score</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-50">
-                      {hiddenImpact.map(p => {
-                        const color = clusterColor(p.cluster_id);
+                      {topRecords.map(r => {
+                        const color = clusterColor(r.cluster_id);
                         return (
-                          <tr key={p.player_id} className="hover:bg-gray-50">
+                          <tr key={r.record_id} className="hover:bg-gray-50">
                             <td className="px-4 py-3">
-                              <p className="font-medium text-gray-900">{p.name}</p>
+                              <p className="font-medium text-gray-900">{r.label}</p>
                             </td>
                             <td className="px-4 py-3">
                               <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${color.badge}`}>
-                                C{p.cluster_id}
+                                C{r.cluster_id}
                               </span>
                             </td>
-                            <td className="px-4 py-3 text-gray-600">{p.position}</td>
-                            <td className="px-4 py-3 text-gray-600">{p.league}</td>
-                            <td className="px-4 py-3 text-right text-gray-600">{p.goals}</td>
-                            <td className="px-4 py-3 text-right text-gray-600">{p.assists}</td>
-                            <td className="px-4 py-3 text-right text-gray-600">{p.rating}</td>
+                            {stringFields.map(f => (
+                              <td key={f} className="px-4 py-3 text-gray-600">{r.fields[f] ?? '-'}</td>
+                            ))}
+                            {numericFields.map(f => (
+                              <td key={f} className="px-4 py-3 text-right text-gray-600">{r.fields[f] ?? '-'}</td>
+                            ))}
                             <td className="px-4 py-3 text-right">
-                              <span className="font-bold text-brand-700">{p.impact_score.toFixed(3)}</span>
+                              <span className="font-bold text-brand-700">{r.score.toFixed(3)}</span>
                             </td>
                           </tr>
                         );
@@ -392,6 +421,16 @@ export default function InsightsPage() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {!loading && !error && clusters.length === 0 && (
+        <div className="text-center py-20">
+          <svg className="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+          </svg>
+          <p className="text-sm text-gray-500">No clustering insights yet for this dataset.</p>
+          <p className="text-xs text-gray-400 mt-1">Run the ML pipeline on <span className="font-medium">{dataset}</span> to generate cluster analysis.</p>
         </div>
       )}
     </div>

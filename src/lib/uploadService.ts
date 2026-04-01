@@ -117,43 +117,31 @@ export async function deleteJob(jobId: string): Promise<void> {
 
 export interface ClusterSummary {
   cluster_id: number;
-  player_count: number;
-  avg_impact_score: number;
-  avg_goals: number;
-  avg_assists: number;
-  avg_tackles: number;
-  avg_interceptions: number;
-  avg_saves: number;
-  avg_rating: number;
-  avg_minutes: number;
+  record_count: number;
+  label?: string;
+  metrics: Record<string, number>;
 }
 
-export interface ClusterPlayer {
+export interface ClusterRecord {
   cluster_id: number;
-  impact_score: number;
-  player_id: string;
-  name: string;
-  position: string;
-  league: string;
-  goals: number;
-  assists: number;
-  appearances: number;
-  tackles: number;
-  saves: number;
-  rating: number;
+  record_id: string;
+  label: string;
+  fields: Record<string, string | number>;
+  score: number;
 }
 
 export interface ClusterData {
+  dataset: string;
   clusters: ClusterSummary[];
-  players: ClusterPlayer[];
+  records: ClusterRecord[];
 }
 
-export async function fetchClusters(): Promise<ClusterData> {
+export async function fetchClusters(dataset: string): Promise<ClusterData> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/clusters`, { headers });
+  const res = await fetch(`${API_BASE}/clusters/${encodeURIComponent(dataset)}`, { headers });
   if (!res.ok) throw new Error(`Clusters fetch failed (${res.status})`);
   return res.json() as Promise<ClusterData>;
 }
