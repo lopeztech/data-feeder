@@ -15,8 +15,6 @@ on:
 env:
   PROJECT_ID: data-feeder-lcd
   REGION: australia-southeast1
-  AR_REPO: data-feeder-images
-  PIPELINE_NAME: player-role-clustering
   SERVICE_ACCOUNT: sa-ml-v@data-feeder-lcd.iam.gserviceaccount.com
   GCS_BUCKET: gs://data-feeder-lcd-ml-artifacts
 
@@ -58,38 +56,87 @@ jobs:
             --use_legacy_sql=false \
             < pipelines/ml/sql/player_features_view.sql
 
-      - name: Compile KFP pipeline
+      # --- Clustering pipeline ---
+      - name: Compile clustering pipeline
         working-directory: pipelines/ml
         run: python pipeline.py
 
-      - name: Upload pipeline to GCS
+      - name: Upload clustering pipeline to GCS
         working-directory: pipelines/ml
-        run: |
-          gsutil cp pipeline.json ${{ env.GCS_BUCKET }}/pipelines/${{ env.PIPELINE_NAME }}/pipeline.json
+        run: gsutil cp pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-role-clustering/pipeline.json
 
-      - name: Submit pipeline run
+      - name: Submit clustering pipeline
         if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
         working-directory: pipelines/ml
         run: |
           python -c "
           from google.cloud import aiplatform
           aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
-
           job = aiplatform.PipelineJob(
-              display_name='${{ env.PIPELINE_NAME }}-$(date +%Y%m%d-%H%M)',
+              display_name='player-role-clustering-$(date +%Y%m%d-%H%M)',
               template_path='pipeline.json',
               pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
-              parameter_values={
-                  'project_id': '${{ env.PROJECT_ID }}',
-                  'region': '${{ env.REGION }}',
-              },
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
           )
           job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
-          print(f'Pipeline submitted: {job.resource_name}')
+          print(f'Clustering pipeline submitted: {job.resource_name}')
+          "
+
+      # --- Anomaly detection pipeline ---
+      - name: Compile anomaly pipeline
+        working-directory: pipelines/ml
+        run: python anomaly_pipeline.py
+
+      - name: Upload anomaly pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp anomaly_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-anomaly-detection/pipeline.json
+
+      - name: Submit anomaly pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='player-anomaly-detection-$(date +%Y%m%d-%H%M)',
+              template_path='anomaly_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Anomaly pipeline submitted: {job.resource_name}')
+          "
+
+      # --- Rating prediction pipeline ---
+      - name: Compile rating pipeline
+        working-directory: pipelines/ml
+        run: python rating_pipeline.py
+
+      - name: Upload rating pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp rating_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-rating-prediction/pipeline.json
+
+      - name: Submit rating pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='player-rating-prediction-$(date +%Y%m%d-%H%M)',
+              template_path='rating_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Rating pipeline submitted: {job.resource_name}')
           "
 
       - name: Show pipeline info
         run: |
-          echo "### ML Pipeline Deployed" >> "$GITHUB_STEP_SUMMARY"
-          echo "Pipeline: \`${{ env.PIPELINE_NAME }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "GCS: \`${{ env.GCS_BUCKET }}/pipelines/${{ env.PIPELINE_NAME }}/pipeline.json\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "### ML Pipelines Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Clustering**: \`player-role-clustering\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Anomaly Detection**: \`player-anomaly-detection\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Rating Prediction**: \`player-rating-prediction\`" >> "$GITHUB_STEP_SUMMARY"

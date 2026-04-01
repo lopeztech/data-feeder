@@ -137,12 +137,47 @@ export interface ClusterData {
   records: ClusterRecord[];
 }
 
+export type ModelType = 'clusters' | 'anomalies' | 'predictions';
+
 export interface ModelInfo {
   model: string;
-  clustersTable: string;
+  type: ModelType;
+  outputTable: string;
   idCol: string;
-  scoreCol: string;
   sourceTables: string[];
+}
+
+export interface AnomalyRecord {
+  record_id: string;
+  label: string;
+  anomaly_score: number;
+  is_anomaly: boolean;
+  fields: Record<string, string | number>;
+}
+
+export interface AnomalyData {
+  model: string;
+  type: 'anomalies';
+  sourceTables: string[];
+  summary: { total: number; anomaly_count: number; avg_score: number; max_score: number };
+  records: AnomalyRecord[];
+}
+
+export interface PredictionRecord {
+  record_id: string;
+  label: string;
+  predicted_rating: number;
+  actual_rating: number;
+  residual: number;
+  position?: string;
+}
+
+export interface PredictionData {
+  model: string;
+  type: 'predictions';
+  sourceTables: string[];
+  summary: { total: number; r2_approx: number; mae: number; rmse: number; mean_residual: number };
+  records: PredictionRecord[];
 }
 
 export async function fetchModels(): Promise<ModelInfo[]> {
@@ -163,6 +198,26 @@ export async function fetchClusters(model: string): Promise<ClusterData> {
   const res = await fetch(`${API_BASE}/clusters/${encodeURIComponent(model)}`, { headers });
   if (!res.ok) throw new Error(`Clusters fetch failed (${res.status})`);
   return res.json() as Promise<ClusterData>;
+}
+
+export async function fetchAnomalies(model: string): Promise<AnomalyData> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/anomalies/${encodeURIComponent(model)}`, { headers });
+  if (!res.ok) throw new Error(`Anomalies fetch failed (${res.status})`);
+  return res.json() as Promise<AnomalyData>;
+}
+
+export async function fetchPredictions(model: string): Promise<PredictionData> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/predictions/${encodeURIComponent(model)}`, { headers });
+  if (!res.ok) throw new Error(`Predictions fetch failed (${res.status})`);
+  return res.json() as Promise<PredictionData>;
 }
 
 export async function getUploadStatus(uploadId: string): Promise<unknown> {

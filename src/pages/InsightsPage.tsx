@@ -1,45 +1,33 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { fetchClusters, listJobs } from '../lib/uploadService';
-import type { ClusterSummary, ClusterRecord } from '../lib/uploadService';
+import { fetchClusters, fetchAnomalies, fetchPredictions, listJobs } from '../lib/uploadService';
+import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, ModelType } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
-import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS } from '../data/mockClusters';
+import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
 
-interface TableGroup {
-  table: string;
-  jobs: PipelineJob[];
-  totalLoaded: number;
-  totalSize: number;
-  latestDate: string;
-}
+// ── Shared helpers ──
+
+interface TableGroup { table: string; jobs: PipelineJob[]; totalLoaded: number; totalSize: number; latestDate: string }
 
 function groupByTable(jobs: PipelineJob[]): TableGroup[] {
   const map = new Map<string, PipelineJob[]>();
-  for (const j of jobs) {
-    const key = j.bq_table ?? j.dataset;
-    const arr = map.get(key) ?? [];
-    arr.push(j);
-    map.set(key, arr);
-  }
-  return Array.from(map.entries()).map(([table, tableJobs]) => ({
-    table,
-    jobs: tableJobs,
-    totalLoaded: tableJobs.reduce((s, j) => s + (j.stats?.loaded ?? 0), 0),
-    totalSize: tableJobs.reduce((s, j) => s + j.file_size_bytes, 0),
-    latestDate: tableJobs.reduce((latest, j) => j.updated_at > latest ? j.updated_at : latest, ''),
+  for (const j of jobs) { const k = j.bq_table ?? j.dataset; map.set(k, [...(map.get(k) ?? []), j]); }
+  return Array.from(map.entries()).map(([table, js]) => ({
+    table, jobs: js,
+    totalLoaded: js.reduce((s, j) => s + (j.stats?.loaded ?? 0), 0),
+    totalSize: js.reduce((s, j) => s + j.file_size_bytes, 0),
+    latestDate: js.reduce((l, j) => j.updated_at > l ? j.updated_at : l, ''),
   }));
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+function formatBytes(b: number) { return b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`; }
+function formatDate(iso: string) { return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+function metricLabel(key: string) { return key.replace(/^avg_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
+const TYPE_LABELS: Record<ModelType, string> = { clusters: 'K-Means Clustering', anomalies: 'Anomaly Detection', predictions: 'Rating Prediction' };
+
+// ── Cluster helpers ──
 
 const CLUSTER_COLORS = [
   { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-700', bar: 'bg-blue-500' },
@@ -51,73 +39,249 @@ const CLUSTER_COLORS = [
   { bg: 'bg-amber-50', border: 'border-amber-200', text: 'text-amber-700', badge: 'bg-amber-100 text-amber-700', bar: 'bg-amber-500' },
   { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-100 text-red-700', bar: 'bg-red-500' },
 ];
+function clusterColor(id: number) { return CLUSTER_COLORS[id % CLUSTER_COLORS.length]; }
 
-function clusterColor(id: number) {
-  return CLUSTER_COLORS[id % CLUSTER_COLORS.length];
-}
-
-/** Pick the top N numeric metric keys from clusters for display (skip near-zero averages). */
-function pickDisplayMetrics(clusters: ClusterSummary[], maxCount = 4): string[] {
-  if (clusters.length === 0) return [];
-  const allKeys = new Set<string>();
-  for (const c of clusters) {
-    for (const k of Object.keys(c.metrics)) allKeys.add(k);
-  }
-  // Rank by max value across clusters (higher variance = more interesting)
-  return Array.from(allKeys)
-    .map(k => ({ key: k, max: Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0))) }))
-    .filter(e => e.max > 0.01)
-    .sort((a, b) => b.max - a.max)
-    .slice(0, maxCount)
-    .map(e => e.key);
-}
-
-function metricLabel(key: string): string {
-  return key
-    .replace(/^avg_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, c => c.toUpperCase());
+function pickDisplayMetrics(clusters: ClusterSummary[], max = 4) {
+  const keys = new Set<string>(); clusters.forEach(c => Object.keys(c.metrics).forEach(k => keys.add(k)));
+  return [...keys].map(k => ({ key: k, max: Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0))) }))
+    .filter(e => e.max > 0.01).sort((a, b) => b.max - a.max).slice(0, max).map(e => e.key);
 }
 
 function StatBar({ value, max, color }: { value: number; max: number; color: string }) {
-  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return <div className="w-full bg-gray-100 rounded-full h-1.5"><div className={`h-1.5 rounded-full ${color} transition-all duration-500`} style={{ width: `${max > 0 ? Math.min(100, (value/max)*100) : 0}%` }} /></div>;
+}
+
+// ── Cluster View ──
+
+function ClustersView({ clusters, records, expandedCluster, setExpandedCluster }: {
+  clusters: ClusterSummary[]; records: ClusterRecord[]; expandedCluster: number | null; setExpandedCluster: (v: number | null) => void;
+}) {
+  const totalRecords = clusters.reduce((s, c) => s + c.record_count, 0);
+  const displayMetrics = pickDisplayMetrics(clusters);
+  const maxes = Object.fromEntries(displayMetrics.map(k => [k, Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0)), 1)]));
+  const topRecords = [...records].sort((a, b) => b.score - a.score).slice(0, 10);
+
   return (
-    <div className="w-full bg-gray-100 rounded-full h-1.5">
-      <div className={`h-1.5 rounded-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
+    <div className="space-y-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Clusters</p><p className="text-2xl font-bold text-gray-900">{clusters.length}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Total Records</p><p className="text-2xl font-bold text-gray-900">{totalRecords.toLocaleString()}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Top Scored</p><p className="text-2xl font-bold text-brand-700">{topRecords.length}</p></div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Clusters</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {clusters.map(c => {
+            const color = clusterColor(c.cluster_id);
+            const cr = records.filter(r => r.cluster_id === c.cluster_id);
+            const expanded = expandedCluster === c.cluster_id;
+            return (
+              <div key={c.cluster_id} className={`border rounded-xl overflow-hidden ${color.border} ${color.bg}`}>
+                <button onClick={() => setExpandedCluster(expanded ? null : c.cluster_id)} className="w-full p-4 text-left">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${color.badge}`}>C{c.cluster_id}</span>
+                      <h3 className={`font-semibold ${color.text}`}>{c.label ?? `Cluster ${c.cluster_id}`}</h3>
+                    </div>
+                    <span className="text-xs text-gray-500">{c.record_count} records</span>
+                  </div>
+                  <div className="space-y-2">
+                    {displayMetrics.map(key => (
+                      <div key={key} className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-24 truncate">{metricLabel(key)}</span>
+                        <StatBar value={c.metrics[key] ?? 0} max={maxes[key]} color={color.bar} />
+                        <span className="text-xs font-medium text-gray-700 w-10 text-right">{(c.metrics[key] ?? 0) % 1 === 0 ? c.metrics[key] : (c.metrics[key] ?? 0).toFixed(1)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+                {expanded && cr.length > 0 && (
+                  <div className="border-t border-gray-200/50 bg-white/50">
+                    <div className="px-4 py-2 bg-gray-50/50"><p className="text-xs font-semibold text-gray-500 uppercase">Top Records</p></div>
+                    <div className="divide-y divide-gray-100">
+                      {cr.map(r => (
+                        <div key={r.record_id} className="px-4 py-2 flex items-center gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{r.label}</p>
+                            <p className="text-xs text-gray-400">{Object.entries(r.fields).filter(([,v]) => typeof v === 'string').map(([,v]) => v).join(' · ')}</p>
+                          </div>
+                          <span className="text-xs font-medium text-brand-700">{r.score.toFixed(3)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 }
 
-/** Pick string fields from records (for the table columns). */
-function pickRecordFields(records: ClusterRecord[], maxCount = 3): string[] {
-  if (records.length === 0) return [];
-  const allKeys = new Set<string>();
-  for (const r of records) {
-    for (const [k, v] of Object.entries(r.fields)) {
-      if (typeof v === 'string') allKeys.add(k);
-    }
-  }
-  return Array.from(allKeys).slice(0, maxCount);
+// ── Anomaly View ──
+
+function AnomaliesView({ data }: { data: AnomalyData }) {
+  const { summary, records } = data;
+  const anomalies = records.filter(r => r.is_anomaly);
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Total Records</p><p className="text-2xl font-bold text-gray-900">{summary.total.toLocaleString()}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Anomalies</p><p className="text-2xl font-bold text-amber-600">{summary.anomaly_count}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Anomaly Rate</p><p className="text-2xl font-bold text-gray-900">{(summary.anomaly_count / summary.total * 100).toFixed(1)}%</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Max Score</p><p className="text-2xl font-bold text-gray-900">{summary.max_score}</p></div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-semibold text-gray-900 mb-2">Anomalous Records</h2>
+        <p className="text-sm text-gray-500 mb-4">Records with unusual stat distributions detected by Isolation Forest.</p>
+        <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Record</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Status</th>
+                  {records[0] && Object.keys(records[0].fields).filter(k => typeof records[0].fields[k] === 'string').slice(0, 2).map(k => (
+                    <th key={k} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(k)}</th>
+                  ))}
+                  {records[0] && Object.keys(records[0].fields).filter(k => typeof records[0].fields[k] === 'number').slice(0, 3).map(k => (
+                    <th key={k} className="text-right px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(k)}</th>
+                  ))}
+                  <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Anomaly Score</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {(anomalies.length > 0 ? anomalies : records).slice(0, 20).map(r => {
+                  const strFields = Object.entries(r.fields).filter(([,v]) => typeof v === 'string').slice(0, 2);
+                  const numFields = Object.entries(r.fields).filter(([,v]) => typeof v === 'number').slice(0, 3);
+                  return (
+                    <tr key={r.record_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{r.label}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${r.is_anomaly ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+                          {r.is_anomaly ? 'Anomaly' : 'Normal'}
+                        </span>
+                      </td>
+                      {strFields.map(([,v]) => <td key={String(v)} className="px-4 py-3 text-gray-600">{String(v)}</td>)}
+                      {numFields.map(([k,v]) => <td key={k} className="px-4 py-3 text-right text-gray-600">{v}</td>)}
+                      <td className="px-4 py-3 text-right">
+                        <span className={`font-bold ${r.is_anomaly ? 'text-amber-700' : 'text-gray-500'}`}>{r.anomaly_score.toFixed(4)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-/** Pick numeric fields from records for the table. */
-function pickRecordNumericFields(records: ClusterRecord[], maxCount = 4): string[] {
-  if (records.length === 0) return [];
-  const allKeys = new Set<string>();
-  for (const r of records) {
-    for (const [k, v] of Object.entries(r.fields)) {
-      if (typeof v === 'number') allKeys.add(k);
-    }
-  }
-  return Array.from(allKeys).slice(0, maxCount);
+// ── Prediction View ──
+
+function PredictionsView({ data }: { data: PredictionData }) {
+  const { summary, records } = data;
+  const overRated = records.filter(r => r.residual > 0).slice(0, 10);
+  const underRated = records.filter(r => r.residual < 0).slice(0, 10);
+
+  return (
+    <div className="space-y-8">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">R² (approx)</p><p className="text-2xl font-bold text-gray-900">{summary.r2_approx}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">MAE</p><p className="text-2xl font-bold text-gray-900">{summary.mae}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">RMSE</p><p className="text-2xl font-bold text-gray-900">{summary.rmse}</p></div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Total Records</p><p className="text-2xl font-bold text-gray-900">{summary.total.toLocaleString()}</p></div>
+      </div>
+
+      {/* Over-rated (model predicts higher than actual) */}
+      {overRated.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Over-Rated</h2>
+          <p className="text-sm text-gray-500 mb-4">Model predicts a higher rating than actual — may be underperforming relative to stats.</p>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Record</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Position</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Predicted</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Actual</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Residual</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {overRated.map(r => (
+                    <tr key={r.record_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{r.label}</td>
+                      <td className="px-4 py-3 text-gray-600">{r.position ?? '-'}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{r.predicted_rating}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{r.actual_rating}</td>
+                      <td className="px-4 py-3 text-right"><span className="font-bold text-green-600">+{r.residual.toFixed(4)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Under-rated */}
+      {underRated.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 mb-2">Under-Rated</h2>
+          <p className="text-sm text-gray-500 mb-4">Model predicts a lower rating than actual — may be overperforming relative to stats.</p>
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Record</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Position</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Predicted</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Actual</th>
+                    <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Residual</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {underRated.map(r => (
+                    <tr key={r.record_id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium text-gray-900">{r.label}</td>
+                      <td className="px-4 py-3 text-gray-600">{r.position ?? '-'}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{r.predicted_rating}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{r.actual_rating}</td>
+                      <td className="px-4 py-3 text-right"><span className="font-bold text-red-600">{r.residual.toFixed(4)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
+
+// ── Main Page ──
 
 export default function InsightsPage() {
-  const { model } = useParams<{ model: string }>();
+  const { type, model } = useParams<{ type: string; model: string }>();
+  const modelType = (type as ModelType) || 'clusters';
   const { user } = useAuth();
   const isGuest = user?.role === 'guest';
-  const [clusters, setClusters] = useState<ClusterSummary[]>([]);
-  const [records, setRecords] = useState<ClusterRecord[]>([]);
+
+  const [clusterData, setClusterData] = useState<{ clusters: ClusterSummary[]; records: ClusterRecord[] } | null>(null);
+  const [anomalyData, setAnomalyData] = useState<AnomalyData | null>(null);
+  const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
   const [sourceTables, setSourceTables] = useState<string[]>([]);
   const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -129,48 +293,38 @@ export default function InsightsPage() {
     if (!model) return;
 
     if (isGuest) {
-      const mockModel = MOCK_MODELS.find(m => m.model === model);
+      const mockModel = MOCK_MODELS.find(m => m.model === model && m.type === modelType);
       const sources = mockModel?.sourceTables ?? [];
-      setClusters(MOCK_CLUSTERS);
-      setRecords(MOCK_CLUSTER_RECORDS);
       setSourceTables(sources);
       setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => sources.includes(j.dataset)));
+      if (modelType === 'clusters') setClusterData({ clusters: MOCK_CLUSTERS, records: MOCK_CLUSTER_RECORDS });
+      else if (modelType === 'anomalies') setAnomalyData(MOCK_ANOMALY_DATA);
+      else if (modelType === 'predictions') setPredictionData(MOCK_PREDICTION_DATA);
       setLoading(false);
       return;
     }
 
     setLoading(true);
-    Promise.all([
-      fetchClusters(model),
-      listJobs().catch(() => [] as PipelineJob[]),
-    ])
-      .then(([data, allJobs]) => {
-        setClusters(data.clusters);
-        setRecords(data.records);
-        setSourceTables(data.sourceTables);
-        setLineageJobs(allJobs.filter(j => j.status === 'LOADED' && data.sourceTables.includes(j.dataset)));
+    const dataFetch = modelType === 'clusters'
+      ? fetchClusters(model).then(d => { setClusterData({ clusters: d.clusters, records: d.records }); setSourceTables(d.sourceTables); })
+      : modelType === 'anomalies'
+      ? fetchAnomalies(model).then(d => { setAnomalyData(d); setSourceTables(d.sourceTables); })
+      : fetchPredictions(model).then(d => { setPredictionData(d); setSourceTables(d.sourceTables); });
+
+    Promise.all([dataFetch, listJobs().catch(() => [] as PipelineJob[])])
+      .then(([, allJobs]) => {
+        setLineageJobs(allJobs.filter(j => j.status === 'LOADED'));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [model, isGuest]);
+  }, [model, modelType, isGuest]);
 
-  const totalRecords = clusters.reduce((sum, c) => sum + c.record_count, 0);
-  const displayMetrics = pickDisplayMetrics(clusters);
-  const metricMaxes = Object.fromEntries(
-    displayMetrics.map(k => [k, Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0)), 1)])
-  );
-
-  // Top scoring records across all clusters
-  const topRecords = [...records]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10);
-
-  const stringFields = pickRecordFields(records);
-  const numericFields = pickRecordNumericFields(records);
+  // Filter lineage jobs to source tables once both are loaded
+  const filteredLineage = lineageJobs.filter(j => sourceTables.includes(j.dataset));
+  const hasData = clusterData || anomalyData || predictionData;
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
-      {/* Back link + header */}
       <div className="mb-8">
         <Link to="/insights" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-brand-600 transition mb-3">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -180,7 +334,7 @@ export default function InsightsPage() {
         </Link>
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{model}</h1>
         <p className="text-gray-500 mt-1 text-sm">
-          K-Means clustering analysis — {sourceTables.length} source {sourceTables.length === 1 ? 'table' : 'tables'}
+          {TYPE_LABELS[modelType]} — {sourceTables.length} source {sourceTables.length === 1 ? 'table' : 'tables'}
         </p>
       </div>
 
@@ -204,38 +358,26 @@ export default function InsightsPage() {
       )}
 
       {/* Data Lineage */}
-      {!loading && !error && lineageJobs.length > 0 && (() => {
-        const groups = groupByTable(lineageJobs);
-        const totalUploads = lineageJobs.length;
+      {!loading && !error && filteredLineage.length > 0 && (() => {
+        const groups = groupByTable(filteredLineage);
         return (
           <div className="mb-6 bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <button
-              onClick={() => setLineageOpen(!lineageOpen)}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
-            >
+            <button onClick={() => setLineageOpen(!lineageOpen)} className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
               <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zM9 12h6M12 9v6" />
-                </svg>
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7c0-2-1-3-3-3H7C5 4 4 5 4 7zM9 12h6M12 9v6" /></svg>
                 <span className="text-sm font-semibold text-gray-700">Data Lineage</span>
-                <span className="text-xs text-gray-400">{groups.length} {groups.length === 1 ? 'table' : 'tables'} · {totalUploads} uploads</span>
+                <span className="text-xs text-gray-400">{groups.length} {groups.length === 1 ? 'table' : 'tables'} · {filteredLineage.length} uploads</span>
               </div>
-              <svg className={`w-4 h-4 text-gray-400 transition-transform ${lineageOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
+              <svg className={`w-4 h-4 text-gray-400 transition-transform ${lineageOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </button>
-
             {lineageOpen && (
               <div className="px-4 pb-4">
                 <div className="grid grid-cols-1 md:grid-cols-[1fr_40px_1fr] gap-4 items-center">
-                  {/* Source uploads */}
                   <div className="space-y-3">
                     {groups.map(g => (
                       <div key={g.table} className="border border-gray-100 rounded-lg p-3 border-l-4 border-l-teal-500">
                         <div className="flex items-center gap-2 mb-1">
-                          <svg className="w-3.5 h-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
-                          </svg>
+                          <svg className="w-3.5 h-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" /></svg>
                           <span className="text-xs font-bold text-gray-700">{g.table}</span>
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
@@ -247,27 +389,15 @@ export default function InsightsPage() {
                       </div>
                     ))}
                   </div>
-
-                  {/* Connector arrow */}
                   <div className="hidden md:flex flex-col items-center justify-center gap-1">
                     <div className="w-px flex-1 border-l-2 border-dashed border-gray-200" />
-                    <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                    </svg>
+                    <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" /></svg>
                     <div className="w-px flex-1 border-l-2 border-dashed border-gray-200" />
                   </div>
-
-                  {/* ML output */}
                   <div className="border border-gray-100 rounded-lg p-3 border-l-4 border-l-brand-500">
                     <div className="flex items-center gap-2 mb-1">
-                      <svg className="w-3.5 h-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                      </svg>
-                      <span className="text-xs font-bold text-gray-700">K-Means Clustering</span>
-                    </div>
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-gray-500">
-                      <span>{clusters.length} clusters</span>
-                      <span>{totalRecords.toLocaleString()} records</span>
+                      <svg className="w-3.5 h-3.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                      <span className="text-xs font-bold text-gray-700">{TYPE_LABELS[modelType]}</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">Vertex AI</p>
                   </div>
@@ -278,164 +408,22 @@ export default function InsightsPage() {
         );
       })()}
 
-      {!loading && !error && clusters.length > 0 && (
-        <div className="space-y-8">
-          {/* Overview cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Clusters</p>
-              <p className="text-2xl font-bold text-gray-900">{clusters.length}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Total Records</p>
-              <p className="text-2xl font-bold text-gray-900">{totalRecords.toLocaleString()}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Uploads</p>
-              <p className="text-2xl font-bold text-gray-900">{lineageJobs.length}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-xs text-gray-400">Top Scored</p>
-              <p className="text-2xl font-bold text-brand-700">{topRecords.length}</p>
-            </div>
-          </div>
-
-          {/* Cluster cards */}
-          <div>
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Clusters</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {clusters.map(c => {
-                const color = clusterColor(c.cluster_id);
-                const clusterRecords = records.filter(r => r.cluster_id === c.cluster_id);
-                const isExpanded = expandedCluster === c.cluster_id;
-
-                return (
-                  <div key={c.cluster_id} className={`border rounded-xl overflow-hidden ${color.border} ${color.bg}`}>
-                    <button
-                      onClick={() => setExpandedCluster(isExpanded ? null : c.cluster_id)}
-                      className="w-full p-4 text-left"
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${color.badge}`}>
-                            C{c.cluster_id}
-                          </span>
-                          <h3 className={`font-semibold ${color.text}`}>
-                            {c.label ?? `Cluster ${c.cluster_id}`}
-                          </h3>
-                        </div>
-                        <span className="text-xs text-gray-500">{c.record_count} records</span>
-                      </div>
-
-                      <div className="space-y-2">
-                        {displayMetrics.map(key => (
-                          <div key={key} className="flex items-center gap-2">
-                            <span className="text-xs text-gray-500 w-24 truncate">{metricLabel(key)}</span>
-                            <StatBar value={c.metrics[key] ?? 0} max={metricMaxes[key]} color={color.bar} />
-                            <span className="text-xs font-medium text-gray-700 w-10 text-right">
-                              {(c.metrics[key] ?? 0) % 1 === 0
-                                ? c.metrics[key]
-                                : (c.metrics[key] ?? 0).toFixed(1)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </button>
-
-                    {/* Expanded: top records */}
-                    {isExpanded && clusterRecords.length > 0 && (
-                      <div className="border-t border-gray-200/50 bg-white/50">
-                        <div className="px-4 py-2 bg-gray-50/50">
-                          <p className="text-xs font-semibold text-gray-500 uppercase">Top Records</p>
-                        </div>
-                        <div className="divide-y divide-gray-100">
-                          {clusterRecords.map(r => (
-                            <div key={r.record_id} className="px-4 py-2 flex items-center gap-3">
-                              <div className="flex-1 min-w-0">
-                                <p className="text-sm font-medium text-gray-900 truncate">{r.label}</p>
-                                <p className="text-xs text-gray-400">
-                                  {Object.entries(r.fields)
-                                    .filter(([, v]) => typeof v === 'string')
-                                    .map(([, v]) => v)
-                                    .join(' · ')}
-                                </p>
-                              </div>
-                              <span className="text-xs font-medium text-brand-700">{r.score.toFixed(3)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Top records table */}
-          {topRecords.length > 0 && (
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Top Scored Records</h2>
-              <p className="text-sm text-gray-500 mb-4">
-                Records with the highest proximity score to their cluster centroid.
-              </p>
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100 bg-gray-50">
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Record</th>
-                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Cluster</th>
-                        {stringFields.map(f => (
-                          <th key={f} className="text-left px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(f)}</th>
-                        ))}
-                        {numericFields.map(f => (
-                          <th key={f} className="text-right px-4 py-3 text-xs font-semibold text-gray-500">{metricLabel(f)}</th>
-                        ))}
-                        <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500">Score</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                      {topRecords.map(r => {
-                        const color = clusterColor(r.cluster_id);
-                        return (
-                          <tr key={r.record_id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3">
-                              <p className="font-medium text-gray-900">{r.label}</p>
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${color.badge}`}>
-                                C{r.cluster_id}
-                              </span>
-                            </td>
-                            {stringFields.map(f => (
-                              <td key={f} className="px-4 py-3 text-gray-600">{r.fields[f] ?? '-'}</td>
-                            ))}
-                            {numericFields.map(f => (
-                              <td key={f} className="px-4 py-3 text-right text-gray-600">{r.fields[f] ?? '-'}</td>
-                            ))}
-                            <td className="px-4 py-3 text-right">
-                              <span className="font-bold text-brand-700">{r.score.toFixed(3)}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+      {/* Model-specific view */}
+      {!loading && !error && hasData && (
+        <>
+          {clusterData && <ClustersView clusters={clusterData.clusters} records={clusterData.records} expandedCluster={expandedCluster} setExpandedCluster={setExpandedCluster} />}
+          {anomalyData && <AnomaliesView data={anomalyData} />}
+          {predictionData && <PredictionsView data={predictionData} />}
+        </>
       )}
 
-      {!loading && !error && clusters.length === 0 && (
+      {!loading && !error && !hasData && (
         <div className="text-center py-20">
           <svg className="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
           </svg>
-          <p className="text-sm text-gray-500">No clustering insights yet for this model.</p>
-          <p className="text-xs text-gray-400 mt-1">Run the ML pipeline on <span className="font-medium">{model}</span> to generate cluster analysis.</p>
+          <p className="text-sm text-gray-500">No insights yet for this model.</p>
+          <p className="text-xs text-gray-400 mt-1">Run the ML pipeline on <span className="font-medium">{model}</span> first.</p>
         </div>
       )}
     </div>

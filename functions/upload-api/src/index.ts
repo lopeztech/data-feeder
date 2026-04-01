@@ -94,6 +94,20 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /anomalies/:model
+  const anomaliesMatch = req.path.match(/^\/anomalies\/([a-zA-Z0-9_-]+)$/);
+  if (req.method === 'GET' && anomaliesMatch) {
+    handleAnomalies(anomaliesMatch[1], res);
+    return;
+  }
+
+  // Route: GET /predictions/:model
+  const predictionsMatch = req.path.match(/^\/predictions\/([a-zA-Z0-9_-]+)$/);
+  if (req.method === 'GET' && predictionsMatch) {
+    handlePredictions(predictionsMatch[1], res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -270,63 +284,80 @@ async function handleBulkDelete(
   }
 }
 
-/**
- * Discover cluster tables and their related source tables.
- * A cluster table is any table ending with _clusters.
- * Source tables are tables that share the same ID column as the cluster table.
- */
-async function discoverModels(): Promise<{
+type ModelType = 'clusters' | 'anomalies' | 'predictions';
+
+const MODEL_SUFFIXES: { suffix: string; type: ModelType }[] = [
+  { suffix: '_clusters', type: 'clusters' },
+  { suffix: '_anomalies', type: 'anomalies' },
+  { suffix: '_rating_predictions', type: 'predictions' },
+];
+
+function isModelTable(name: string): boolean {
+  return MODEL_SUFFIXES.some(s => name.endsWith(s.suffix));
+}
+
+interface DiscoveredModel {
   model: string;
-  clustersTable: string;
+  type: ModelType;
+  outputTable: string;
   idCol: string;
-  scoreCol: string;
   sourceTables: string[];
-}[]> {
-  // Find all cluster tables
-  const [clusterTables] = await bigquery.query({
+}
+
+/**
+ * Discover ML output tables (_clusters, _anomalies, _rating_predictions)
+ * and their related source tables via shared ID column.
+ */
+async function discoverModels(): Promise<DiscoveredModel[]> {
+  const [allTables] = await bigquery.query({
     query: `
       SELECT table_name
       FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\`
-      WHERE ENDS_WITH(table_name, '_clusters')
+      WHERE table_type = 'BASE TABLE'
     `,
   });
-  if ((clusterTables as unknown[]).length === 0) return [];
+  const tableNames = (allTables as { table_name: string }[]).map(r => r.table_name);
 
-  const models = [];
-  for (const row of clusterTables as { table_name: string }[]) {
-    const ct = row.table_name;
+  const models: DiscoveredModel[] = [];
 
-    // Get columns from cluster table
+  for (const tbl of tableNames) {
+    const matched = MODEL_SUFFIXES.find(s => tbl.endsWith(s.suffix));
+    if (!matched) continue;
+
+    const modelName = tbl.replace(new RegExp(`${matched.suffix}$`), '');
+
+    // Get columns to find the ID column
     const [cols] = await bigquery.query({
       query: `
         SELECT column_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
-        WHERE table_name = @ct
+        WHERE table_name = @tbl
       `,
-      params: { ct },
+      params: { tbl },
     });
     const colNames = (cols as { column_name: string }[]).map(r => r.column_name);
-    const scoreCol = colNames.find(c => c.includes('score')) || 'impact_score';
-    const idCol = colNames.find(c => c !== 'cluster_id' && c !== scoreCol) || 'record_id';
+    // ID column = anything that's not a known output column
+    const outputCols = ['cluster_id', 'impact_score', 'anomaly_score', 'is_anomaly',
+      'predicted_rating', 'actual_rating', 'residual'];
+    const idCol = colNames.find(c => !outputCols.includes(c)) || 'player_id';
 
-    // Find all non-cluster tables that also have this ID column
+    // Find source tables that share the ID column (exclude all model output tables)
     const [sourceTables] = await bigquery.query({
       query: `
         SELECT DISTINCT c.table_name
         FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` c
         JOIN \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\` t ON c.table_name = t.table_name
         WHERE c.column_name = @idCol
-          AND NOT ENDS_WITH(c.table_name, '_clusters')
           AND t.table_type = 'BASE TABLE'
+          AND c.table_name = @tbl
+          OR (c.column_name = @idCol AND t.table_type = 'BASE TABLE')
       `,
       params: { idCol },
     });
+    const sources = (sourceTables as { table_name: string }[])
+      .map(r => r.table_name)
+      .filter(n => !isModelTable(n));
 
-    const sources = (sourceTables as { table_name: string }[]).map(r => r.table_name);
-
-    // Model name = cluster table without _clusters suffix
-    const model = ct.replace(/_clusters$/, '');
-
-    models.push({ model, clustersTable: ct, idCol, scoreCol, sourceTables: sources });
+    models.push({ model: modelName, type: matched.type, outputTable: tbl, idCol, sourceTables: sources });
   }
   return models;
 }
@@ -350,14 +381,22 @@ async function handleClusters(
   try {
     // Discover the model and its source tables
     const models = await discoverModels();
-    const model = models.find(m => m.model === modelName);
+    const model = models.find(m => m.model === modelName && m.type === 'clusters');
     if (!model) {
       res.status(404).json({ error: `No clusters table found for model "${modelName}". Run the ML pipeline first.` });
       return;
     }
 
-    const { clustersTable, idCol, scoreCol, sourceTables } = model;
-    const ctFull = `${BQ_CURATED_DATASET}.${clustersTable}`;
+    const { outputTable, idCol, sourceTables } = model;
+    const ctFull = `${BQ_CURATED_DATASET}.${outputTable}`;
+
+    // Detect score column from the clusters table
+    const [clusterColRows] = await bigquery.query({
+      query: `SELECT column_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = @tbl`,
+      params: { tbl: outputTable },
+    });
+    const clusterCols = (clusterColRows as { column_name: string }[]).map(r => r.column_name);
+    const scoreCol = clusterCols.find(c => c.includes('score')) || 'impact_score';
 
     if (sourceTables.length === 0) {
       res.status(404).json({ error: `No source tables found for model "${modelName}".` });
@@ -473,6 +512,193 @@ async function handleClusters(
   } catch (err) {
     console.error('Clusters error:', err);
     res.status(500).json({ error: 'Failed to fetch cluster data. ML pipeline may not have run yet.' });
+  }
+}
+
+async function handleAnomalies(
+  modelName: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const models = await discoverModels();
+    const model = models.find(m => m.model === modelName && m.type === 'anomalies');
+    if (!model) {
+      res.status(404).json({ error: `No anomalies table found for model "${modelName}".` });
+      return;
+    }
+
+    const { outputTable, idCol, sourceTables } = model;
+    const anomalyTable = `${BQ_CURATED_DATASET}.${outputTable}`;
+
+    if (sourceTables.length === 0) {
+      res.status(404).json({ error: `No source tables found for model "${modelName}".` });
+      return;
+    }
+
+    // Discover string columns from source tables for labels
+    const stringCols: { col: string; alias: string }[] = [];
+    const numericCols: { col: string; alias: string }[] = [];
+    const seenCols = new Set<string>();
+    const joins: string[] = [];
+
+    for (let i = 0; i < sourceTables.length; i++) {
+      const tbl = sourceTables[i];
+      const alias = `s${i}`;
+      joins.push(`LEFT JOIN \`${BQ_CURATED_DATASET}.${tbl}\` ${alias} ON SAFE_CAST(a.${idCol} AS STRING) = SAFE_CAST(${alias}.${idCol} AS STRING)`);
+
+      const [cols] = await bigquery.query({
+        query: `SELECT column_name, data_type FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = @tbl`,
+        params: { tbl },
+      });
+      for (const c of cols as { column_name: string; data_type: string }[]) {
+        if (c.column_name === idCol || seenCols.has(c.column_name)) continue;
+        seenCols.add(c.column_name);
+        if (c.data_type === 'STRING') stringCols.push({ col: c.column_name, alias });
+        else if (['INT64', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'].includes(c.data_type))
+          numericCols.push({ col: c.column_name, alias });
+      }
+    }
+
+    const fieldExprs = [
+      ...stringCols.map(sc => `${sc.alias}.${sc.col}`),
+      ...numericCols.map(nc => `${nc.alias}.${nc.col}`),
+    ].join(', ');
+
+    // Summary stats
+    const [summaryRows] = await bigquery.query({
+      query: `
+        SELECT
+          COUNT(*) AS total,
+          COUNTIF(is_anomaly = 1) AS anomaly_count,
+          ROUND(AVG(anomaly_score), 4) AS avg_score,
+          ROUND(MAX(anomaly_score), 4) AS max_score
+        FROM \`${anomalyTable}\`
+      `,
+    });
+    const summary = (summaryRows as Record<string, unknown>[])[0];
+
+    // Top anomalies with source fields
+    const [anomalyRows] = await bigquery.query({
+      query: `
+        SELECT
+          CAST(a.${idCol} AS STRING) AS record_id,
+          ROUND(a.anomaly_score, 4) AS anomaly_score,
+          a.is_anomaly
+          ${fieldExprs ? ', ' + fieldExprs : ''}
+        FROM \`${anomalyTable}\` a
+        ${joins.join('\n        ')}
+        ORDER BY a.anomaly_score DESC
+        LIMIT 50
+      `,
+    });
+
+    const labelCol = stringCols.find(sc => sc.col.includes('name'))?.col || stringCols[0]?.col || null;
+    const records = (anomalyRows as Record<string, unknown>[]).map(row => {
+      const fields: Record<string, string | number> = {};
+      for (const sc of stringCols) {
+        if (sc.col !== labelCol && row[sc.col] != null) fields[sc.col] = String(row[sc.col]);
+      }
+      for (const nc of numericCols) {
+        if (row[nc.col] != null) fields[nc.col] = Number(row[nc.col]);
+      }
+      return {
+        record_id: String(row.record_id),
+        label: labelCol && row[labelCol] ? String(row[labelCol]) : String(row.record_id),
+        anomaly_score: Number(row.anomaly_score),
+        is_anomaly: Number(row.is_anomaly) === 1,
+        fields,
+      };
+    });
+
+    res.status(200).json({ model: modelName, type: 'anomalies', sourceTables, summary, records });
+  } catch (err) {
+    console.error('Anomalies error:', err);
+    res.status(500).json({ error: 'Failed to fetch anomaly data.' });
+  }
+}
+
+async function handlePredictions(
+  modelName: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const models = await discoverModels();
+    const model = models.find(m => m.model === modelName && m.type === 'predictions');
+    if (!model) {
+      res.status(404).json({ error: `No predictions table found for model "${modelName}".` });
+      return;
+    }
+
+    const { outputTable, idCol, sourceTables } = model;
+    const predTable = `${BQ_CURATED_DATASET}.${outputTable}`;
+
+    // Discover label column from source tables
+    const stringCols: { col: string; alias: string }[] = [];
+    const joins: string[] = [];
+
+    for (let i = 0; i < sourceTables.length; i++) {
+      const tbl = sourceTables[i];
+      const alias = `s${i}`;
+      joins.push(`LEFT JOIN \`${BQ_CURATED_DATASET}.${tbl}\` ${alias} ON SAFE_CAST(p.${idCol} AS STRING) = SAFE_CAST(${alias}.${idCol} AS STRING)`);
+
+      const [cols] = await bigquery.query({
+        query: `SELECT column_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = @tbl AND data_type = 'STRING'`,
+        params: { tbl },
+      });
+      for (const c of cols as { column_name: string }[]) {
+        if (c.column_name !== idCol) stringCols.push({ col: c.column_name, alias });
+      }
+    }
+
+    const labelCol = stringCols.find(sc => sc.col.includes('name'))?.col || stringCols[0]?.col || null;
+    const labelExpr = labelCol ? `, ${stringCols.find(sc => sc.col === labelCol)!.alias}.${labelCol} AS label` : '';
+    const positionCol = stringCols.find(sc => sc.col === 'position');
+    const positionExpr = positionCol ? `, ${positionCol.alias}.position` : '';
+
+    // Summary metrics
+    const [summaryRows] = await bigquery.query({
+      query: `
+        SELECT
+          COUNT(*) AS total,
+          ROUND(CORR(predicted_rating, actual_rating), 4) AS r2_approx,
+          ROUND(AVG(ABS(residual)), 4) AS mae,
+          ROUND(SQRT(AVG(residual * residual)), 4) AS rmse,
+          ROUND(AVG(residual), 4) AS mean_residual
+        FROM \`${predTable}\`
+      `,
+    });
+    const summary = (summaryRows as Record<string, unknown>[])[0];
+
+    // All predictions with labels
+    const [predRows] = await bigquery.query({
+      query: `
+        SELECT
+          CAST(p.${idCol} AS STRING) AS record_id,
+          ROUND(p.predicted_rating, 4) AS predicted_rating,
+          ROUND(p.actual_rating, 4) AS actual_rating,
+          ROUND(p.residual, 4) AS residual
+          ${labelExpr}
+          ${positionExpr}
+        FROM \`${predTable}\` p
+        ${joins.join('\n        ')}
+        ORDER BY ABS(p.residual) DESC
+        LIMIT 50
+      `,
+    });
+
+    const records = (predRows as Record<string, unknown>[]).map(row => ({
+      record_id: String(row.record_id),
+      label: row.label ? String(row.label) : String(row.record_id),
+      predicted_rating: Number(row.predicted_rating),
+      actual_rating: Number(row.actual_rating),
+      residual: Number(row.residual),
+      position: row.position ? String(row.position) : undefined,
+    }));
+
+    res.status(200).json({ model: modelName, type: 'predictions', sourceTables, summary, records });
+  } catch (err) {
+    console.error('Predictions error:', err);
+    res.status(500).json({ error: 'Failed to fetch prediction data.' });
   }
 }
 

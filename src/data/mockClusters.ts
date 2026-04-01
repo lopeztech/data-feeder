@@ -1,15 +1,57 @@
-import type { ClusterSummary, ClusterRecord, ModelInfo } from '../lib/uploadService';
+import type { ClusterSummary, ClusterRecord, ModelInfo, AnomalyData, PredictionData } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
 
 export const MOCK_MODELS: ModelInfo[] = [
   {
     model: 'player',
-    clustersTable: 'player_clusters',
+    type: 'clusters',
+    outputTable: 'player_clusters',
     idCol: 'player_id',
-    scoreCol: 'impact_score',
+    sourceTables: ['all_player_stats', 'all_player_profiles'],
+  },
+  {
+    model: 'player',
+    type: 'anomalies',
+    outputTable: 'player_anomalies',
+    idCol: 'player_id',
+    sourceTables: ['all_player_stats', 'all_player_profiles'],
+  },
+  {
+    model: 'player_rating',
+    type: 'predictions',
+    outputTable: 'player_rating_predictions',
+    idCol: 'player_id',
     sourceTables: ['all_player_stats', 'all_player_profiles'],
   },
 ];
+
+export const MOCK_ANOMALY_DATA: AnomalyData = {
+  model: 'player',
+  type: 'anomalies',
+  sourceTables: ['all_player_stats', 'all_player_profiles'],
+  summary: { total: 1115, anomaly_count: 56, avg_score: 0.4821, max_score: 0.9634 },
+  records: [
+    { record_id: 'p-att-001', label: 'Erling Haaland', anomaly_score: 0.9634, is_anomaly: true, fields: { position: 'ST', league: 'Premier League', goals: 27, assists: 5, rating: 7.45 } },
+    { record_id: 'p-gk-001', label: 'Marc-André ter Stegen', anomaly_score: 0.9201, is_anomaly: true, fields: { position: 'GK', league: 'La Liga', goals: 0, saves: 102, rating: 6.82 } },
+    { record_id: 'p-att-002', label: 'Kylian Mbappé', anomaly_score: 0.8987, is_anomaly: true, fields: { position: 'LW', league: 'La Liga', goals: 22, assists: 8, rating: 7.52 } },
+    { record_id: 'p-dm-001', label: 'Rodri', anomaly_score: 0.8456, is_anomaly: true, fields: { position: 'CDM', league: 'Premier League', tackles: 52, goals: 3, rating: 7.22 } },
+    { record_id: 'p-mid-001', label: 'Kevin De Bruyne', anomaly_score: 0.8123, is_anomaly: true, fields: { position: 'CAM', league: 'Premier League', assists: 14, goals: 6, rating: 7.34 } },
+  ],
+};
+
+export const MOCK_PREDICTION_DATA: PredictionData = {
+  model: 'player_rating',
+  type: 'predictions',
+  sourceTables: ['all_player_stats', 'all_player_profiles'],
+  summary: { total: 1115, r2_approx: 0.8234, mae: 0.1823, rmse: 0.2341, mean_residual: -0.0012 },
+  records: [
+    { record_id: 'p-att-001', label: 'Erling Haaland', predicted_rating: 7.12, actual_rating: 7.45, residual: -0.33, position: 'ST' },
+    { record_id: 'p-att-002', label: 'Kylian Mbappé', predicted_rating: 7.61, actual_rating: 7.52, residual: 0.09, position: 'LW' },
+    { record_id: 'p-mid-003', label: 'Florian Wirtz', predicted_rating: 6.82, actual_rating: 7.19, residual: -0.37, position: 'CAM' },
+    { record_id: 'p-def-001', label: 'Virgil van Dijk', predicted_rating: 7.28, actual_rating: 7.12, residual: 0.16, position: 'CB' },
+    { record_id: 'p-dm-002', label: 'Declan Rice', predicted_rating: 6.74, actual_rating: 7.08, residual: -0.34, position: 'CDM' },
+  ],
+};
 
 export const MOCK_CLUSTERS: ClusterSummary[] = [
   {

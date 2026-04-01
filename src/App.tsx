@@ -23,7 +23,7 @@ export default function App() {
                 <Route path="/upload" element={<UploadPage />} />
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/insights" element={<InsightsListPage />} />
-                <Route path="/insights/:model" element={<InsightsPage />} />
+                <Route path="/insights/:type/:model" element={<InsightsPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/login" replace />} />
