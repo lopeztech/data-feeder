@@ -15,7 +15,7 @@ def test_compile_clustering_pipeline(tmp_path):
     )
 
     data = json.loads(out.read_text())
-    assert "pipelineSpec" in data, "Compiled JSON missing 'pipelineSpec' key"
+    assert "root" in data, "Compiled JSON missing 'root' key"
 
 
 def test_compile_anomaly_pipeline(tmp_path):
@@ -28,7 +28,7 @@ def test_compile_anomaly_pipeline(tmp_path):
     )
 
     data = json.loads(out.read_text())
-    assert "pipelineSpec" in data, "Compiled JSON missing 'pipelineSpec' key"
+    assert "root" in data, "Compiled JSON missing 'root' key"
 
 
 def test_compile_rating_pipeline(tmp_path):
@@ -41,4 +41,4 @@ def test_compile_rating_pipeline(tmp_path):
     )
 
     data = json.loads(out.read_text())
-    assert "pipelineSpec" in data, "Compiled JSON missing 'pipelineSpec' key"
+    assert "root" in data, "Compiled JSON missing 'root' key"
