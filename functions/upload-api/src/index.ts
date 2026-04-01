@@ -287,7 +287,7 @@ async function discoverModels(): Promise<{
     query: `
       SELECT table_name
       FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\`
-      WHERE table_name LIKE '%\\_clusters' ESCAPE '\\\\'
+      WHERE ENDS_WITH(table_name, '_clusters')
     `,
   });
   if ((clusterTables as unknown[]).length === 0) return [];
@@ -315,7 +315,7 @@ async function discoverModels(): Promise<{
         FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` c
         JOIN \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\` t ON c.table_name = t.table_name
         WHERE c.column_name = @idCol
-          AND c.table_name NOT LIKE '%\\_clusters' ESCAPE '\\\\'
+          AND NOT ENDS_WITH(c.table_name, '_clusters')
           AND t.table_type = 'BASE TABLE'
       `,
       params: { idCol },
