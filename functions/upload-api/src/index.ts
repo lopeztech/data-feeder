@@ -81,9 +81,10 @@ http('uploadApi', (req, res) => {
     return;
   }
 
-  // Route: GET /clusters
-  if (req.method === 'GET' && req.path === '/clusters') {
-    handleClusters(res);
+  // Route: GET /clusters/:dataset
+  const clustersMatch = req.path.match(/^\/clusters\/([a-zA-Z0-9_-]+)$/);
+  if (req.method === 'GET' && clustersMatch) {
+    handleClusters(clustersMatch[1], res);
     return;
   }
 
@@ -264,55 +265,137 @@ async function handleBulkDelete(
 }
 
 async function handleClusters(
+  dataset: string,
   res: { status: (code: number) => { json: (data: unknown) => void } },
 ) {
   try {
-    // Cluster summary
+    const sourceTable = `${BQ_CURATED_DATASET}.${dataset}`;
+
+    // Check which clusters table exists: {dataset}_clusters (new) or player_clusters (legacy)
+    const [tableCheck] = await bigquery.query({
+      query: `
+        SELECT table_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\`
+        WHERE table_name IN (@preferred, 'player_clusters')
+        ORDER BY CASE WHEN table_name = @preferred THEN 0 ELSE 1 END
+        LIMIT 1
+      `,
+      params: { preferred: `${dataset}_clusters` },
+    });
+    if ((tableCheck as unknown[]).length === 0) {
+      res.status(404).json({ error: `No clusters table found for dataset "${dataset}". Run the ML pipeline first.` });
+      return;
+    }
+    const clustersTableName = (tableCheck as { table_name: string }[])[0].table_name;
+    const clustersTable = `${BQ_CURATED_DATASET}.${clustersTableName}`;
+
+    // Discover numeric columns from the source table for dynamic metrics
+    const [colRows] = await bigquery.query({
+      query: `
+        SELECT column_name, data_type
+        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
+        WHERE table_name = @source
+          AND data_type IN ('INT64', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC')
+      `,
+      params: { source: dataset },
+    });
+    const numericCols: string[] = (colRows as { column_name: string }[]).map(r => r.column_name);
+
+    // Discover string/label columns from the source table
+    const [strColRows] = await bigquery.query({
+      query: `
+        SELECT column_name
+        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
+        WHERE table_name = @source
+          AND data_type = 'STRING'
+      `,
+      params: { source: dataset },
+    });
+    const stringCols: string[] = (strColRows as { column_name: string }[]).map(r => r.column_name);
+
+    // Discover the record-id and score columns from the clusters table
+    const [clusterColRows] = await bigquery.query({
+      query: `
+        SELECT column_name
+        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
+        WHERE table_name = @ct
+      `,
+      params: { ct: clustersTableName },
+    });
+    const clusterCols = (clusterColRows as { column_name: string }[]).map(r => r.column_name);
+    // The record ID column is whatever isn't cluster_id or the score column
+    const scoreName = clusterCols.find(c => c.includes('score')) || 'impact_score';
+    const idCol = clusterCols.find(c => c !== 'cluster_id' && c !== scoreName) || 'record_id';
+
+    // Build dynamic AVG expressions for cluster metrics
+    const avgExprs = numericCols.length > 0
+      ? numericCols.map(c => `ROUND(AVG(SAFE_CAST(s.${c} AS FLOAT64)), 2) AS avg_${c}`).join(',\n          ')
+      : 'NULL AS _placeholder';
+
+    // Cluster summary with dynamic metrics
     const [summaryRows] = await bigquery.query({
       query: `
         SELECT
           c.cluster_id,
-          COUNT(*) AS player_count,
-          ROUND(AVG(c.impact_score), 4) AS avg_impact_score,
-          ROUND(AVG(SAFE_CAST(s.goals AS FLOAT64)), 2) AS avg_goals,
-          ROUND(AVG(SAFE_CAST(s.assists AS FLOAT64)), 2) AS avg_assists,
-          ROUND(AVG(SAFE_CAST(s.tackles AS FLOAT64)), 2) AS avg_tackles,
-          ROUND(AVG(SAFE_CAST(s.interceptions AS FLOAT64)), 2) AS avg_interceptions,
-          ROUND(AVG(SAFE_CAST(s.saves AS FLOAT64)), 2) AS avg_saves,
-          ROUND(AVG(SAFE_CAST(s.rating AS FLOAT64)), 4) AS avg_rating,
-          ROUND(AVG(SAFE_CAST(s.minutes_played AS FLOAT64)), 0) AS avg_minutes
-        FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
-        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON SAFE_CAST(c.player_id AS INT64) = s.player_id
+          COUNT(*) AS record_count,
+          ${avgExprs}
+        FROM \`${clustersTable}\` c
+        JOIN \`${sourceTable}\` s ON SAFE_CAST(c.${idCol} AS STRING) = SAFE_CAST(s.${idCol} AS STRING)
         GROUP BY c.cluster_id
         ORDER BY c.cluster_id
       `,
     });
 
-    // Top impact players per cluster
-    const [playerRows] = await bigquery.query({
+    // Reshape summaries: move avg_ columns into a metrics map
+    const clusters = (summaryRows as Record<string, unknown>[]).map(row => {
+      const metrics: Record<string, number> = {};
+      const base: Record<string, unknown> = { cluster_id: row.cluster_id, record_count: row.record_count };
+      for (const [k, v] of Object.entries(row)) {
+        if (k.startsWith('avg_') && v != null) metrics[k] = Number(v);
+      }
+      return { ...base, metrics };
+    });
+
+    // Build SELECT for source fields
+    const fieldExprs = [
+      ...stringCols.map(c => `s.${c}`),
+      ...numericCols.map(c => `s.${c}`),
+    ].join(', ');
+
+    // Top records per cluster
+    const [recordRows] = await bigquery.query({
       query: `
         SELECT
           c.cluster_id,
-          c.impact_score,
-          p.player_id,
-          p.name,
-          p.position,
-          p.league,
-          SAFE_CAST(s.goals AS INT64) AS goals,
-          SAFE_CAST(s.assists AS INT64) AS assists,
-          SAFE_CAST(s.appearances AS INT64) AS appearances,
-          SAFE_CAST(s.tackles AS INT64) AS tackles,
-          SAFE_CAST(s.saves AS INT64) AS saves,
-          ROUND(SAFE_CAST(s.rating AS FLOAT64), 2) AS rating
-        FROM \`${BQ_CURATED_DATASET}.player_clusters\` c
-        JOIN \`${BQ_CURATED_DATASET}.all_player_profiles\` p ON SAFE_CAST(c.player_id AS INT64) = p.player_id
-        JOIN \`${BQ_CURATED_DATASET}.all_player_stats\` s ON SAFE_CAST(c.player_id AS INT64) = s.player_id
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.impact_score DESC) <= 10
-        ORDER BY c.cluster_id, c.impact_score DESC
+          CAST(c.${idCol} AS STRING) AS record_id,
+          ROUND(c.${scoreName}, 4) AS score
+          ${fieldExprs ? ', ' + fieldExprs : ''}
+        FROM \`${clustersTable}\` c
+        JOIN \`${sourceTable}\` s ON SAFE_CAST(c.${idCol} AS STRING) = SAFE_CAST(s.${idCol} AS STRING)
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.${scoreName} DESC) <= 10
+        ORDER BY c.cluster_id, c.${scoreName} DESC
       `,
     });
 
-    res.status(200).json({ clusters: summaryRows, players: playerRows });
+    // Reshape records: label = first string field, rest into fields map
+    const labelCol = stringCols.find(c => c.includes('name')) || stringCols[0] || null;
+    const records = (recordRows as Record<string, unknown>[]).map(row => {
+      const fields: Record<string, string | number> = {};
+      for (const c of stringCols) {
+        if (c !== labelCol && row[c] != null) fields[c] = String(row[c]);
+      }
+      for (const c of numericCols) {
+        if (row[c] != null) fields[c] = Number(row[c]);
+      }
+      return {
+        cluster_id: row.cluster_id,
+        record_id: String(row.record_id),
+        label: labelCol && row[labelCol] ? String(row[labelCol]) : String(row.record_id),
+        fields,
+        score: Number(row.score),
+      };
+    });
+
+    res.status(200).json({ dataset, clusters, records });
   } catch (err) {
     console.error('Clusters error:', err);
     res.status(500).json({ error: 'Failed to fetch cluster data. ML pipeline may not have run yet.' });
