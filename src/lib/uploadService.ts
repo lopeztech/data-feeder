@@ -131,17 +131,36 @@ export interface ClusterRecord {
 }
 
 export interface ClusterData {
-  dataset: string;
+  model: string;
+  sourceTables: string[];
   clusters: ClusterSummary[];
   records: ClusterRecord[];
 }
 
-export async function fetchClusters(dataset: string): Promise<ClusterData> {
+export interface ModelInfo {
+  model: string;
+  clustersTable: string;
+  idCol: string;
+  scoreCol: string;
+  sourceTables: string[];
+}
+
+export async function fetchModels(): Promise<ModelInfo[]> {
   const token = getAuthToken();
   const headers: Record<string, string> = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_BASE}/clusters/${encodeURIComponent(dataset)}`, { headers });
+  const res = await fetch(`${API_BASE}/models`, { headers });
+  if (!res.ok) throw new Error(`Models fetch failed (${res.status})`);
+  return res.json() as Promise<ModelInfo[]>;
+}
+
+export async function fetchClusters(model: string): Promise<ClusterData> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/clusters/${encodeURIComponent(model)}`, { headers });
   if (!res.ok) throw new Error(`Clusters fetch failed (${res.status})`);
   return res.json() as Promise<ClusterData>;
 }

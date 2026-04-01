@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchClusters, listJobs } from '../lib/uploadService';
 import type { ClusterSummary, ClusterRecord } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
-import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS } from '../data/mockClusters';
+import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS } from '../data/mockClusters';
 
 interface TableGroup {
   table: string;
@@ -113,11 +113,12 @@ function pickRecordNumericFields(records: ClusterRecord[], maxCount = 4): string
 }
 
 export default function InsightsPage() {
-  const { dataset } = useParams<{ dataset: string }>();
+  const { model } = useParams<{ model: string }>();
   const { user } = useAuth();
   const isGuest = user?.role === 'guest';
   const [clusters, setClusters] = useState<ClusterSummary[]>([]);
   const [records, setRecords] = useState<ClusterRecord[]>([]);
+  const [sourceTables, setSourceTables] = useState<string[]>([]);
   const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,29 +126,33 @@ export default function InsightsPage() {
   const [lineageOpen, setLineageOpen] = useState(true);
 
   useEffect(() => {
-    if (!dataset) return;
+    if (!model) return;
 
     if (isGuest) {
+      const mockModel = MOCK_MODELS.find(m => m.model === model);
+      const sources = mockModel?.sourceTables ?? [];
       setClusters(MOCK_CLUSTERS);
       setRecords(MOCK_CLUSTER_RECORDS);
-      setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => j.dataset === dataset));
+      setSourceTables(sources);
+      setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => sources.includes(j.dataset)));
       setLoading(false);
       return;
     }
 
     setLoading(true);
     Promise.all([
-      fetchClusters(dataset),
+      fetchClusters(model),
       listJobs().catch(() => [] as PipelineJob[]),
     ])
       .then(([data, allJobs]) => {
         setClusters(data.clusters);
         setRecords(data.records);
-        setLineageJobs(allJobs.filter(j => j.status === 'LOADED' && j.dataset === dataset));
+        setSourceTables(data.sourceTables);
+        setLineageJobs(allJobs.filter(j => j.status === 'LOADED' && data.sourceTables.includes(j.dataset)));
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
-  }, [dataset, isGuest]);
+  }, [model, isGuest]);
 
   const totalRecords = clusters.reduce((sum, c) => sum + c.record_count, 0);
   const displayMetrics = pickDisplayMetrics(clusters);
@@ -171,11 +176,11 @@ export default function InsightsPage() {
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
-          All Datasets
+          All Models
         </Link>
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{dataset}</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{model}</h1>
         <p className="text-gray-500 mt-1 text-sm">
-          K-Means clustering analysis and data lineage
+          K-Means clustering analysis — {sourceTables.length} source {sourceTables.length === 1 ? 'table' : 'tables'}
         </p>
       </div>
 
@@ -429,8 +434,8 @@ export default function InsightsPage() {
           <svg className="w-12 h-12 text-gray-300 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
           </svg>
-          <p className="text-sm text-gray-500">No clustering insights yet for this dataset.</p>
-          <p className="text-xs text-gray-400 mt-1">Run the ML pipeline on <span className="font-medium">{dataset}</span> to generate cluster analysis.</p>
+          <p className="text-sm text-gray-500">No clustering insights yet for this model.</p>
+          <p className="text-xs text-gray-400 mt-1">Run the ML pipeline on <span className="font-medium">{model}</span> to generate cluster analysis.</p>
         </div>
       )}
     </div>

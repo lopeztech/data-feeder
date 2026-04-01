@@ -1,5 +1,15 @@
-import type { ClusterSummary, ClusterRecord } from '../lib/uploadService';
+import type { ClusterSummary, ClusterRecord, ModelInfo } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
+
+export const MOCK_MODELS: ModelInfo[] = [
+  {
+    model: 'player',
+    clustersTable: 'player_clusters',
+    idCol: 'player_id',
+    scoreCol: 'impact_score',
+    sourceTables: ['all_player_stats', 'all_player_profiles'],
+  },
+];
 
 export const MOCK_CLUSTERS: ClusterSummary[] = [
   {

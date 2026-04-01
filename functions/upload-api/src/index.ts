@@ -81,7 +81,13 @@ http('uploadApi', (req, res) => {
     return;
   }
 
-  // Route: GET /clusters/:dataset
+  // Route: GET /models
+  if (req.method === 'GET' && req.path === '/models') {
+    handleListModels(res);
+    return;
+  }
+
+  // Route: GET /clusters/:model
   const clustersMatch = req.path.match(/^\/clusters\/([a-zA-Z0-9_-]+)$/);
   if (req.method === 'GET' && clustersMatch) {
     handleClusters(clustersMatch[1], res);
@@ -264,88 +270,156 @@ async function handleBulkDelete(
   }
 }
 
-async function handleClusters(
-  dataset: string,
+/**
+ * Discover cluster tables and their related source tables.
+ * A cluster table is any table ending with _clusters.
+ * Source tables are tables that share the same ID column as the cluster table.
+ */
+async function discoverModels(): Promise<{
+  model: string;
+  clustersTable: string;
+  idCol: string;
+  scoreCol: string;
+  sourceTables: string[];
+}[]> {
+  // Find all cluster tables
+  const [clusterTables] = await bigquery.query({
+    query: `
+      SELECT table_name
+      FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\`
+      WHERE table_name LIKE '%\\_clusters' ESCAPE '\\\\'
+    `,
+  });
+  if ((clusterTables as unknown[]).length === 0) return [];
+
+  const models = [];
+  for (const row of clusterTables as { table_name: string }[]) {
+    const ct = row.table_name;
+
+    // Get columns from cluster table
+    const [cols] = await bigquery.query({
+      query: `
+        SELECT column_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
+        WHERE table_name = @ct
+      `,
+      params: { ct },
+    });
+    const colNames = (cols as { column_name: string }[]).map(r => r.column_name);
+    const scoreCol = colNames.find(c => c.includes('score')) || 'impact_score';
+    const idCol = colNames.find(c => c !== 'cluster_id' && c !== scoreCol) || 'record_id';
+
+    // Find all non-cluster tables that also have this ID column
+    const [sourceTables] = await bigquery.query({
+      query: `
+        SELECT DISTINCT c.table_name
+        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` c
+        JOIN \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\` t ON c.table_name = t.table_name
+        WHERE c.column_name = @idCol
+          AND c.table_name NOT LIKE '%\\_clusters' ESCAPE '\\\\'
+          AND t.table_type = 'BASE TABLE'
+      `,
+      params: { idCol },
+    });
+
+    const sources = (sourceTables as { table_name: string }[]).map(r => r.table_name);
+
+    // Model name = cluster table without _clusters suffix
+    const model = ct.replace(/_clusters$/, '');
+
+    models.push({ model, clustersTable: ct, idCol, scoreCol, sourceTables: sources });
+  }
+  return models;
+}
+
+async function handleListModels(
   res: { status: (code: number) => { json: (data: unknown) => void } },
 ) {
   try {
-    const sourceTable = `${BQ_CURATED_DATASET}.${dataset}`;
+    const models = await discoverModels();
+    res.status(200).json(models);
+  } catch (err) {
+    console.error('List models error:', err);
+    res.status(500).json({ error: 'Failed to list models' });
+  }
+}
 
-    // Check which clusters table exists: {dataset}_clusters (new) or player_clusters (legacy)
-    const [tableCheck] = await bigquery.query({
-      query: `
-        SELECT table_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.TABLES\`
-        WHERE table_name IN (@preferred, 'player_clusters')
-        ORDER BY CASE WHEN table_name = @preferred THEN 0 ELSE 1 END
-        LIMIT 1
-      `,
-      params: { preferred: `${dataset}_clusters` },
-    });
-    if ((tableCheck as unknown[]).length === 0) {
-      res.status(404).json({ error: `No clusters table found for dataset "${dataset}". Run the ML pipeline first.` });
+async function handleClusters(
+  modelName: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    // Discover the model and its source tables
+    const models = await discoverModels();
+    const model = models.find(m => m.model === modelName);
+    if (!model) {
+      res.status(404).json({ error: `No clusters table found for model "${modelName}". Run the ML pipeline first.` });
       return;
     }
-    const clustersTableName = (tableCheck as { table_name: string }[])[0].table_name;
-    const clustersTable = `${BQ_CURATED_DATASET}.${clustersTableName}`;
 
-    // Discover numeric columns from the source table for dynamic metrics
-    const [colRows] = await bigquery.query({
-      query: `
-        SELECT column_name, data_type
-        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
-        WHERE table_name = @source
-          AND data_type IN ('INT64', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC')
-      `,
-      params: { source: dataset },
-    });
-    const numericCols: string[] = (colRows as { column_name: string }[]).map(r => r.column_name);
+    const { clustersTable, idCol, scoreCol, sourceTables } = model;
+    const ctFull = `${BQ_CURATED_DATASET}.${clustersTable}`;
 
-    // Discover string/label columns from the source table
-    const [strColRows] = await bigquery.query({
-      query: `
-        SELECT column_name
-        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
-        WHERE table_name = @source
-          AND data_type = 'STRING'
-      `,
-      params: { source: dataset },
-    });
-    const stringCols: string[] = (strColRows as { column_name: string }[]).map(r => r.column_name);
+    if (sourceTables.length === 0) {
+      res.status(404).json({ error: `No source tables found for model "${modelName}".` });
+      return;
+    }
 
-    // Discover the record-id and score columns from the clusters table
-    const [clusterColRows] = await bigquery.query({
-      query: `
-        SELECT column_name
-        FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
-        WHERE table_name = @ct
-      `,
-      params: { ct: clustersTableName },
-    });
-    const clusterCols = (clusterColRows as { column_name: string }[]).map(r => r.column_name);
-    // The record ID column is whatever isn't cluster_id or the score column
-    const scoreName = clusterCols.find(c => c.includes('score')) || 'impact_score';
-    const idCol = clusterCols.find(c => c !== 'cluster_id' && c !== scoreName) || 'record_id';
+    // Discover columns from ALL source tables, de-duplicating by name
+    // Prefix with table alias to avoid ambiguity
+    const numericCols: { col: string; alias: string; table: string }[] = [];
+    const stringCols: { col: string; alias: string; table: string }[] = [];
+    const seenCols = new Set<string>();
 
-    // Build dynamic AVG expressions for cluster metrics
+    for (let i = 0; i < sourceTables.length; i++) {
+      const tbl = sourceTables[i];
+      const alias = `s${i}`;
+
+      const [cols] = await bigquery.query({
+        query: `
+          SELECT column_name, data_type
+          FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\`
+          WHERE table_name = @tbl
+        `,
+        params: { tbl },
+      });
+
+      for (const c of cols as { column_name: string; data_type: string }[]) {
+        if (c.column_name === idCol || seenCols.has(c.column_name)) continue;
+        seenCols.add(c.column_name);
+
+        if (['INT64', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'].includes(c.data_type)) {
+          numericCols.push({ col: c.column_name, alias, table: tbl });
+        } else if (c.data_type === 'STRING') {
+          stringCols.push({ col: c.column_name, alias, table: tbl });
+        }
+      }
+    }
+
+    // Build JOINs for all source tables
+    const joins = sourceTables.map((tbl, i) =>
+      `JOIN \`${BQ_CURATED_DATASET}.${tbl}\` s${i} ON SAFE_CAST(c.${idCol} AS STRING) = SAFE_CAST(s${i}.${idCol} AS STRING)`
+    ).join('\n        ');
+
+    // Build dynamic AVG expressions
     const avgExprs = numericCols.length > 0
-      ? numericCols.map(c => `ROUND(AVG(SAFE_CAST(s.${c} AS FLOAT64)), 2) AS avg_${c}`).join(',\n          ')
+      ? numericCols.map(nc => `ROUND(AVG(SAFE_CAST(${nc.alias}.${nc.col} AS FLOAT64)), 2) AS avg_${nc.col}`).join(',\n          ')
       : 'NULL AS _placeholder';
 
-    // Cluster summary with dynamic metrics
+    // Cluster summary with metrics from all source tables
     const [summaryRows] = await bigquery.query({
       query: `
         SELECT
           c.cluster_id,
           COUNT(*) AS record_count,
           ${avgExprs}
-        FROM \`${clustersTable}\` c
-        JOIN \`${sourceTable}\` s ON SAFE_CAST(c.${idCol} AS STRING) = SAFE_CAST(s.${idCol} AS STRING)
+        FROM \`${ctFull}\` c
+        ${joins}
         GROUP BY c.cluster_id
         ORDER BY c.cluster_id
       `,
     });
 
-    // Reshape summaries: move avg_ columns into a metrics map
+    // Reshape into generic format
     const clusters = (summaryRows as Record<string, unknown>[]).map(row => {
       const metrics: Record<string, number> = {};
       const base: Record<string, unknown> = { cluster_id: row.cluster_id, record_count: row.record_count };
@@ -355,10 +429,10 @@ async function handleClusters(
       return { ...base, metrics };
     });
 
-    // Build SELECT for source fields
+    // Build SELECT for record fields
     const fieldExprs = [
-      ...stringCols.map(c => `s.${c}`),
-      ...numericCols.map(c => `s.${c}`),
+      ...stringCols.map(sc => `${sc.alias}.${sc.col}`),
+      ...numericCols.map(nc => `${nc.alias}.${nc.col}`),
     ].join(', ');
 
     // Top records per cluster
@@ -367,24 +441,24 @@ async function handleClusters(
         SELECT
           c.cluster_id,
           CAST(c.${idCol} AS STRING) AS record_id,
-          ROUND(c.${scoreName}, 4) AS score
+          ROUND(c.${scoreCol}, 4) AS score
           ${fieldExprs ? ', ' + fieldExprs : ''}
-        FROM \`${clustersTable}\` c
-        JOIN \`${sourceTable}\` s ON SAFE_CAST(c.${idCol} AS STRING) = SAFE_CAST(s.${idCol} AS STRING)
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.${scoreName} DESC) <= 10
-        ORDER BY c.cluster_id, c.${scoreName} DESC
+        FROM \`${ctFull}\` c
+        ${joins}
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.${scoreCol} DESC) <= 10
+        ORDER BY c.cluster_id, c.${scoreCol} DESC
       `,
     });
 
-    // Reshape records: label = first string field, rest into fields map
-    const labelCol = stringCols.find(c => c.includes('name')) || stringCols[0] || null;
+    // Reshape records
+    const labelCol = stringCols.find(sc => sc.col.includes('name'))?.col || stringCols[0]?.col || null;
     const records = (recordRows as Record<string, unknown>[]).map(row => {
       const fields: Record<string, string | number> = {};
-      for (const c of stringCols) {
-        if (c !== labelCol && row[c] != null) fields[c] = String(row[c]);
+      for (const sc of stringCols) {
+        if (sc.col !== labelCol && row[sc.col] != null) fields[sc.col] = String(row[sc.col]);
       }
-      for (const c of numericCols) {
-        if (row[c] != null) fields[c] = Number(row[c]);
+      for (const nc of numericCols) {
+        if (row[nc.col] != null) fields[nc.col] = Number(row[nc.col]);
       }
       return {
         cluster_id: row.cluster_id,
@@ -395,7 +469,7 @@ async function handleClusters(
       };
     });
 
-    res.status(200).json({ dataset, clusters, records });
+    res.status(200).json({ model: modelName, sourceTables, clusters, records });
   } catch (err) {
     console.error('Clusters error:', err);
     res.status(500).json({ error: 'Failed to fetch cluster data. ML pipeline may not have run yet.' });
