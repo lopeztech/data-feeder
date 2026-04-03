@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
 import { listJobs, retriggerJob, fetchPreview, deleteJob, bulkDeleteJobs } from '../lib/uploadService';
@@ -359,9 +359,18 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
   );
 }
 
+type SortColumn = 'filename' | 'dataset' | 'status' | 'total_records' | 'created_at';
+type SortDirection = 'asc' | 'desc' | null;
+
+const PAGE_SIZE = 20;
+
 export default function JobsPage() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<JobStatus | 'ALL'>('ALL');
+  const [datasetFilter, setDatasetFilter] = useState<string>('ALL');
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selected, setSelected] = useState<PipelineJob | null>(null);
   const [liveJobs, setLiveJobs] = useState<PipelineJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -455,7 +464,125 @@ export default function JobsPage() {
 
   const jobs = isGuest ? MOCK_JOBS : liveJobs;
 
-  const filtered = filter === 'ALL' ? jobs : jobs.filter((j) => j.status === filter);
+  const datasetOptions = useMemo(() => {
+    const datasets = Array.from(new Set(jobs.map(j => j.dataset))).sort();
+    return datasets;
+  }, [jobs]);
+
+  // Reset page when filters or sort change
+  const handleStatusFilter = useCallback((s: JobStatus | 'ALL') => {
+    setFilter(s);
+    setCurrentPage(1);
+  }, []);
+
+  const handleDatasetFilter = useCallback((ds: string) => {
+    setDatasetFilter(ds);
+    setCurrentPage(1);
+  }, []);
+
+  const handleSort = useCallback((col: SortColumn) => {
+    setCurrentPage(1);
+    setSortColumn(prev => {
+      if (prev !== col) {
+        setSortDirection('asc');
+        return col;
+      }
+      // Cycle: asc -> desc -> null
+      setSortDirection(dir => {
+        if (dir === 'asc') return 'desc';
+        return null;
+      });
+      if (sortDirection === 'desc') return null;
+      return col;
+    });
+  }, [sortDirection]);
+
+  // Filter -> Sort -> Paginate pipeline
+  const filteredJobs = useMemo(() => {
+    let result = jobs;
+    if (filter !== 'ALL') result = result.filter(j => j.status === filter);
+    if (datasetFilter !== 'ALL') result = result.filter(j => j.dataset === datasetFilter);
+    return result;
+  }, [jobs, filter, datasetFilter]);
+
+  const sortedJobs = useMemo(() => {
+    if (!sortColumn || !sortDirection) return filteredJobs;
+    const sorted = [...filteredJobs];
+    const dir = sortDirection === 'asc' ? 1 : -1;
+    sorted.sort((a, b) => {
+      let cmp = 0;
+      switch (sortColumn) {
+        case 'filename':
+          cmp = a.filename.localeCompare(b.filename);
+          break;
+        case 'dataset':
+          cmp = a.dataset.localeCompare(b.dataset);
+          break;
+        case 'status':
+          cmp = a.status.localeCompare(b.status);
+          break;
+        case 'total_records':
+          cmp = a.stats.total_records - b.stats.total_records;
+          break;
+        case 'created_at':
+          cmp = a.created_at.localeCompare(b.created_at);
+          break;
+      }
+      return cmp * dir;
+    });
+    return sorted;
+  }, [filteredJobs, sortColumn, sortDirection]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedJobs.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedJobs = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return sortedJobs.slice(start, start + PAGE_SIZE);
+  }, [sortedJobs, safePage]);
+
+  const showStart = sortedJobs.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const showEnd = Math.min(safePage * PAGE_SIZE, sortedJobs.length);
+
+  // Generate page numbers for pagination controls
+  const pageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (safePage > 3) pages.push('ellipsis');
+      for (let i = Math.max(2, safePage - 1); i <= Math.min(totalPages - 1, safePage + 1); i++) {
+        pages.push(i);
+      }
+      if (safePage < totalPages - 2) pages.push('ellipsis');
+      pages.push(totalPages);
+    }
+    return pages;
+  }, [totalPages, safePage]);
+
+  // Sort header helper
+  const SortHeader = ({ column, label }: { column: SortColumn; label: string }) => {
+    const isActive = sortColumn === column && sortDirection !== null;
+    return (
+      <th
+        onClick={() => handleSort(column)}
+        className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition"
+      >
+        <span className="inline-flex items-center gap-1">
+          {label}
+          {isActive && sortDirection === 'asc' && (
+            <svg className="w-3 h-3 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+          )}
+          {isActive && sortDirection === 'desc' && (
+            <svg className="w-3 h-3 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+          )}
+          {!isActive && (
+            <svg className="w-3 h-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" /></svg>
+          )}
+        </span>
+      </th>
+    );
+  };
 
   return (
     <div className="p-4 sm:p-8">
@@ -487,12 +614,12 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* Status filter */}
-      <div className="flex gap-2 mb-6 flex-wrap">
+      {/* Status filter + dataset filter */}
+      <div className="flex gap-2 mb-6 flex-wrap items-center">
         {(['ALL', 'LOADED', 'TRANSFORMING', 'VALIDATING', 'FAILED', 'REJECTED'] as const).map((s) => (
           <button
             key={s}
-            onClick={() => setFilter(s)}
+            onClick={() => handleStatusFilter(s)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
               filter === s
                 ? 'bg-brand-600 text-white'
@@ -502,6 +629,16 @@ export default function JobsPage() {
             {s === 'ALL' ? 'All jobs' : STATUS_STYLES[s].label}
           </button>
         ))}
+        <select
+          value={datasetFilter}
+          onChange={(e) => handleDatasetFilter(e.target.value)}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 border-0 focus:ring-2 focus:ring-brand-500 cursor-pointer"
+        >
+          <option value="ALL">All datasets</option>
+          {datasetOptions.map((ds) => (
+            <option key={ds} value={ds}>{ds}</option>
+          ))}
+        </select>
       </div>
 
       {/* Bulk action bar */}
@@ -527,7 +664,7 @@ export default function JobsPage() {
 
       {/* Mobile card list */}
       <div className="md:hidden space-y-3">
-        {filtered.map((job) => (
+        {paginatedJobs.map((job) => (
           <div
             key={job.job_id}
             onClick={() => setSelected(job)}
@@ -555,9 +692,9 @@ export default function JobsPage() {
             </div>
           </div>
         ))}
-        {filtered.length === 0 && (
+        {paginatedJobs.length === 0 && (
           <div className="bg-white border border-gray-200 rounded-xl px-4 py-12 text-center text-gray-400 text-sm">
-            No jobs match the selected filter.
+            No jobs match the selected filters.
           </div>
         )}
       </div>
@@ -571,21 +708,21 @@ export default function JobsPage() {
                 <th className="px-4 py-3 w-10">
                   <input
                     type="checkbox"
-                    checked={filtered.length > 0 && checked.size === filtered.length}
-                    onChange={() => toggleAll(filtered)}
+                    checked={paginatedJobs.length > 0 && checked.size === paginatedJobs.length}
+                    onChange={() => toggleAll(paginatedJobs)}
                     className="rounded border-gray-300 text-brand-600 focus:ring-brand-500"
                   />
                 </th>
               )}
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">File</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Dataset</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Records</th>
-              <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Started</th>
+              <SortHeader column="filename" label="File" />
+              <SortHeader column="dataset" label="Dataset" />
+              <SortHeader column="status" label="Status" />
+              <SortHeader column="total_records" label="Records" />
+              <SortHeader column="created_at" label="Started" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {filtered.map((job) => (
+            {paginatedJobs.map((job) => (
               <tr
                 key={job.job_id}
                 onClick={() => setSelected(job)}
@@ -616,16 +753,58 @@ export default function JobsPage() {
                 <td className="px-4 py-3 text-gray-400 text-xs">{formatDate(job.created_at)}</td>
               </tr>
             ))}
-            {filtered.length === 0 && (
+            {paginatedJobs.length === 0 && (
               <tr>
                 <td colSpan={!isGuest ? 6 : 5} className="px-4 py-12 text-center text-gray-400 text-sm">
-                  No jobs match the selected filter.
+                  No jobs match the selected filters.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {sortedJobs.length > PAGE_SIZE && (
+        <div className="flex items-center justify-between mt-4 px-1">
+          <p className="text-xs text-gray-500">
+            Showing {showStart}–{showEnd} of {sortedJobs.length} jobs
+          </p>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            {pageNumbers.map((p, i) =>
+              p === 'ellipsis' ? (
+                <span key={`ellipsis-${i}`} className="px-1.5 text-xs text-gray-400">...</span>
+              ) : (
+                <button
+                  key={p}
+                  onClick={() => setCurrentPage(p)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                    safePage === p
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  {p}
+                </button>
+              )
+            )}
+            <button
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
 
       {selected && <JobDetail job={selected} onClose={() => setSelected(null)} onRetrigger={isGuest ? undefined : handleRetrigger} onDelete={isGuest ? undefined : handleDelete} />}
     </div>

@@ -26,7 +26,7 @@ export default function App() {
                 <Route path="/insights/:type/:model" element={<InsightsPage />} />
               </Route>
             </Route>
-            <Route path="*" element={<Navigate to="/login" replace />} />
+            <Route path="*" element={<Navigate to="/insights" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

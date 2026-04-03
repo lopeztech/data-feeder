@@ -28,3 +28,28 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+  test-functions:
+    name: Function Tests
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        function: [validator]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: functions/${{ matrix.function }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: functions/${{ matrix.function }}
+
+      - name: Run tests
+        run: npm test
+        working-directory: functions/${{ matrix.function }}

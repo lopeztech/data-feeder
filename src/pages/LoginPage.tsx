@@ -15,12 +15,12 @@ export default function LoginPage() {
 
   // Navigate once user is set (after Google callback fires)
   useEffect(() => {
-    if (user && user.role === 'google') navigate('/upload');
+    if (user && user.role === 'google') navigate('/insights');
   }, [user, navigate]);
 
   const handleGuest = () => {
     signInAsGuest();
-    navigate('/jobs');
+    navigate('/insights');
   };
 
   return (
