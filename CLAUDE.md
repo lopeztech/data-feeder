@@ -58,18 +58,25 @@ The validator (`functions/validator/`) is a Pub/Sub-triggered Cloud Function tha
 
 Runs as `sa-validator` service account with `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`. Env vars: `GCS_RAW_BUCKET`, `GCS_SILVER_BUCKET`, `GCS_REJECTED_BUCKET`, `FIRESTORE_DATABASE`, `VALIDATION_COMPLETE_TOPIC`, `PIPELINE_FAILED_TOPIC`.
 
-### Loader (Cloud Function)
+### Loader (Dataflow Flex Template + Launcher)
 
-The loader (`functions/loader/`) is a Pub/Sub-triggered Cloud Function that loads validated data into BigQuery:
-- Triggered by `validation-complete` topic (published by validator)
-- Two-stage load: Silver Parquet → `staging` dataset (WRITE_TRUNCATE) → `curated` dataset (append)
-- Auto-detects high-cardinality columns for BigQuery clustering (up to 4 fields)
-- Creates Data Catalog tags on new Gold tables with source dataset and pipeline zone metadata
+The loader stage uses an Apache Beam Dataflow Flex Template (`pipelines/dataflow/`) launched by a thin Cloud Function (`functions/loader/`):
+
+**Launcher** (`functions/loader/`): Pub/Sub-triggered Cloud Function that receives `validation-complete` messages and launches the Dataflow Flex Template with parameters (`silver_gcs_path`, `target_bq_table`, `job_id`). Idempotency guard: only launches for jobs with status `TRANSFORMING`.
+
+**Dataflow Pipeline** (`pipelines/dataflow/`): Apache Beam Python pipeline containerized as a Docker image in Artifact Registry:
+- Reads validated Parquet from GCS Silver path
+- Two-stage load: Silver Parquet → `staging` dataset (WRITE_TRUNCATE) → `curated` dataset (WRITE_APPEND)
+- Auto-detects high-cardinality columns from Parquet schema for BigQuery clustering (up to 4 fields)
+- BigQuery tables partitioned by `_PARTITIONDATE` with dataset-specific clustering
+- Cloud Monitoring metrics: `rows_processed`, `bytes_written`, `error_count`
+- Worker autoscaling: minimum 1, maximum 20 workers
 - Updates Firestore → `LOADED` with row counts
 - On failure: updates Firestore → `FAILED`, publishes `pipeline-failed`
-- Idempotency guard: only processes jobs with status `TRANSFORMING`
 
-Runs as `sa-dataflow` service account with `bigquery.dataEditor`, `bigquery.jobUser`, `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`.
+Template parameters: `silver_gcs_path`, `target_bq_table`, `job_id`, `project_id`, plus optional `firestore_database`, `bq_staging_dataset`, `bq_curated_dataset`, `dataset_location`, `pipeline_failed_topic`.
+
+Runs as `sa-dataflow` service account with `bigquery.dataEditor`, `bigquery.jobUser`, `datastore.user`, `pubsub.subscriber`, `pubsub.publisher`, `dataflow.worker`.
 
 ### ML Pipeline (Vertex AI)
 
@@ -81,7 +88,7 @@ K-Means clustering for player role identification (`pipelines/ml/`):
 - Runs as `sa-ml` service account via Vertex AI Pipelines
 
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket (date-partitioned paths: `dataset/year=YYYY/month=MM/day=DD/uuid/file`) → GCS notifies Pub/Sub → Validator Cloud Function validates, masks PII, type-casts, deduplicates, converts to Parquet/Snappy (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to staging (WRITE_TRUNCATE) then appends to curated with clustering + Data Catalog tags (Silver→Gold) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket (date-partitioned paths: `dataset/year=YYYY/month=MM/day=DD/uuid/file`) → GCS notifies Pub/Sub → Validator Cloud Function validates, masks PII, type-casts, deduplicates, converts to Parquet/Snappy (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader launcher Cloud Function triggers Dataflow Flex Template → Beam pipeline loads to staging (WRITE_TRUNCATE) then appends to curated with clustering (Silver→Gold, autoscaling 1–20 workers) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
 
 ## Terraform (Infrastructure as Code)
 
@@ -95,7 +102,7 @@ Five deploy workflows:
 - `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build. Includes post-deploy smoke test.
 - `deploy-function.yml` — builds and deploys the upload-api Cloud Function (HTTP trigger).
 - `deploy-validator.yml` — builds and deploys the validator Cloud Function (Pub/Sub trigger on `file-uploaded` topic).
-- `deploy-loader.yml` — builds and deploys the loader Cloud Function (Pub/Sub trigger on `validation-complete` topic).
+- `deploy-loader.yml` — builds the Dataflow Flex Template Docker image, creates the template spec, and deploys the launcher Cloud Function (Pub/Sub trigger on `validation-complete` topic).
 - `deploy-ml-pipeline.yml` — creates BQ feature view, compiles KFP pipeline, submits to Vertex AI.
 
 Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
@@ -117,8 +124,10 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `functions/validator/src/validators.ts` | Pure validation logic per file format |
 | `functions/validator/src/schema.ts` | Type inference, casting, null standardization, deduplication |
 | `functions/validator/src/parquet.ts` | Parquet/Snappy writer for Silver output |
-| `functions/loader/src/index.ts` | Cloud Function: staging→curated BigQuery loader with clustering + Data Catalog |
-| `functions/loader/src/parsers.ts` | File parsing for BQ row conversion |
+| `functions/loader/src/index.ts` | Cloud Function: thin launcher that triggers Dataflow Flex Template |
+| `pipelines/dataflow/pipeline.py` | Apache Beam pipeline: Silver Parquet → staging → curated BigQuery |
+| `pipelines/dataflow/Dockerfile` | Flex Template container image |
+| `pipelines/dataflow/metadata.json` | Flex Template parameter metadata |
 | `pipelines/ml/pipeline.py` | KFP pipeline definition for K-Means clustering |
 | `pipelines/ml/components/` | Pipeline components: preprocess, train, evaluate, deploy |
 | `pipelines/ml/sql/player_features_view.sql` | BigQuery view joining profiles + stats |
