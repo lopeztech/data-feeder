@@ -195,6 +195,7 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
 
   useEffect(() => {
     if (tab !== 'details' && !preview && !previewLoading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- loading flag before async fetch
       setPreviewLoading(true);
       fetchPreview(job.job_id)
         .then(setPreview)

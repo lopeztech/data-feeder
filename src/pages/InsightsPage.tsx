@@ -295,6 +295,7 @@ export default function InsightsPage() {
     if (isGuest) {
       const mockModel = MOCK_MODELS.find(m => m.model === model && m.type === modelType);
       const sources = mockModel?.sourceTables ?? [];
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setSourceTables(sources);
       setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => sources.includes(j.dataset)));
       if (modelType === 'clusters') setClusterData({ clusters: MOCK_CLUSTERS, records: MOCK_CLUSTER_RECORDS });
