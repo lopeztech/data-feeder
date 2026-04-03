@@ -54,6 +54,7 @@ export default function InsightsListPage() {
 
   useEffect(() => {
     if (isGuest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setCards(enrichModels(MOCK_MODELS, MOCK_LINEAGE_JOBS));
       return;
     }

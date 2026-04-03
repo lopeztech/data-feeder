@@ -14,7 +14,6 @@ const pubsub = new PubSub();
 const bigquery = new BigQuery();
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';
-const SILVER_BUCKET = process.env.GCS_SILVER_BUCKET || 'data-feeder-lcd-staging';
 const BQ_CURATED_DATASET = process.env.BQ_CURATED_DATASET || 'curated';
 const FILE_UPLOADED_TOPIC = process.env.PUBSUB_FILE_UPLOADED_TOPIC || 'file-uploaded';
 const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
