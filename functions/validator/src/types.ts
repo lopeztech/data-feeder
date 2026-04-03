@@ -27,3 +27,8 @@ export interface ValidationResult {
   columns?: string[];
   error?: string;
 }
+
+export interface RejectedRecord {
+  row: Record<string, unknown>;
+  errors: string[];
+}

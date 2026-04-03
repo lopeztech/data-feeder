@@ -6,7 +6,9 @@ import { parse } from 'csv-parse/sync';
 import { stringify } from 'csv-stringify/sync';
 import { validate } from './validators.js';
 import { maskPii } from './pii.js';
-import type { GcsNotification, MessagePublishedData } from './types.js';
+import { transformRows } from './schema.js';
+import { writeParquet } from './parquet.js';
+import type { GcsNotification, MessagePublishedData, RejectedRecord } from './types.js';
 
 const storage = new Storage();
 const firestore = new Firestore({
@@ -71,37 +73,27 @@ cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
     // Download file from Bronze
     const [buffer] = await storage.bucket(RAW_BUCKET).file(objectName).download();
 
-    // Validate
+    // Validate file structure
     const result = validate(buffer, contentType, filename);
 
-    if (result.valid) {
-      // Mask PII and write to Silver
-      const maskedBuffer = maskAndSerialize(buffer, contentType, filename, result.columns);
+    if (!result.valid) {
+      // Entire file is structurally invalid — reject it wholesale
+      await rejectFile(objectName, buffer, jobRef, jobId, notification, result.error ?? 'Validation failed');
+      return;
+    }
 
-      await storage
-        .bucket(SILVER_BUCKET)
-        .file(objectName)
-        .save(maskedBuffer.data, { contentType });
-
-      // Update Firestore
-      const piiInfo = maskedBuffer.piiMasked > 0
-        ? ` (PII masked: ${maskedBuffer.piiColumns.map(c => c.column).join(', ')})`
-        : '';
+    // For binary formats (Parquet/Avro), pass through unchanged (already typed)
+    const ext = getExtension(filename);
+    if (['parquet', 'avro'].includes(ext)) {
+      await storage.bucket(SILVER_BUCKET).file(objectName).save(buffer, { contentType });
 
       await jobRef.update({
         status: 'TRANSFORMING',
         silver_path: `gs://${SILVER_BUCKET}/${objectName}`,
-        pii_masked: maskedBuffer.piiColumns,
-        stats: {
-          total_records: result.totalRecords,
-          valid: result.totalRecords,
-          rejected: 0,
-          loaded: 0,
-        },
+        stats: { total_records: result.totalRecords, valid: result.totalRecords, rejected: 0, loaded: 0 },
         updated_at: new Date().toISOString(),
       });
 
-      // Publish validation-complete
       await pubsub.topic(VALIDATION_COMPLETE_TOPIC).publishMessage({
         json: {
           jobId,
@@ -112,39 +104,77 @@ cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
         },
       });
 
-      console.log(`Job ${jobId}: validated ${result.totalRecords} records → Silver${piiInfo}`);
-    } else {
-      // Copy to Rejected bucket
-      await storage
-        .bucket(RAW_BUCKET)
-        .file(objectName)
-        .copy(storage.bucket(REJECTED_BUCKET).file(objectName));
-
-      // Update Firestore
-      await jobRef.update({
-        status: 'REJECTED',
-        error: result.error,
-        stats: {
-          total_records: 0,
-          valid: 0,
-          rejected: 0,
-          loaded: 0,
-        },
-        updated_at: new Date().toISOString(),
-      });
-
-      // Publish pipeline-failed
-      await pubsub.topic(PIPELINE_FAILED_TOPIC).publishMessage({
-        json: {
-          jobId,
-          dataset: notification.metadata?.dataset,
-          error: result.error,
-          bronzePath: `gs://${RAW_BUCKET}/${objectName}`,
-        },
-      });
-
-      console.log(`Job ${jobId}: rejected — ${result.error}`);
+      console.log(`Job ${jobId}: binary format passed through → Silver`);
+      return;
     }
+
+    // Parse text formats into rows for transformation
+    const rows = parseTextRows(buffer, contentType, ext);
+    const columns = result.columns ?? Object.keys(rows[0] ?? {});
+
+    // Step 1: PII masking (before type casting so we work on strings)
+    const { maskedRows, report: piiReport } = maskPii(rows, columns);
+
+    // Step 2: Type casting, null standardization, deduplication, per-record validation
+    const { validRows, rejectedRows, schema } = transformRows(maskedRows, columns);
+
+    if (validRows.length === 0) {
+      // All records rejected
+      await rejectFile(objectName, buffer, jobRef, jobId, notification,
+        `All ${rejectedRows.length} records failed type validation`);
+      return;
+    }
+
+    // Step 3: Write rejected records to rejection bucket with metadata
+    if (rejectedRows.length > 0) {
+      await writeRejectionManifest(objectName, rejectedRows, jobId);
+    }
+
+    // Step 4: Convert valid rows to Parquet with Snappy compression and write to Silver
+    const silverObjectName = objectName.replace(/\.[^.]+$/, '.parquet');
+    const parquetBuffer = await writeParquet(validRows, schema);
+
+    await storage
+      .bucket(SILVER_BUCKET)
+      .file(silverObjectName)
+      .save(parquetBuffer, { contentType: 'application/octet-stream' });
+
+    const piiInfo = piiReport.totalMasked > 0
+      ? ` (PII masked: ${piiReport.maskedColumns.map(c => c.column).join(', ')})`
+      : '';
+
+    const dedupCount = rows.length - validRows.length - rejectedRows.length;
+
+    await jobRef.update({
+      status: 'TRANSFORMING',
+      silver_path: `gs://${SILVER_BUCKET}/${silverObjectName}`,
+      pii_masked: piiReport.maskedColumns,
+      schema: schema.map(s => ({ name: s.name, type: s.type })),
+      stats: {
+        total_records: rows.length,
+        valid: validRows.length,
+        rejected: rejectedRows.length,
+        duplicates_removed: dedupCount,
+        loaded: 0,
+      },
+      updated_at: new Date().toISOString(),
+    });
+
+    // Publish validation-complete
+    await pubsub.topic(VALIDATION_COMPLETE_TOPIC).publishMessage({
+      json: {
+        jobId,
+        dataset: notification.metadata?.dataset,
+        silverPath: `gs://${SILVER_BUCKET}/${silverObjectName}`,
+        totalRecords: validRows.length,
+        contentType: 'application/octet-stream', // now Parquet
+      },
+    });
+
+    console.log(
+      `Job ${jobId}: ${rows.length} records → ${validRows.length} valid, ` +
+      `${rejectedRows.length} rejected, ${dedupCount} deduped → Silver (Parquet/Snappy)${piiInfo}`
+    );
   } catch (err) {
     // Transient error — update Firestore to FAILED if possible, then throw to retry
     console.error(`Job ${jobId}: validation error:`, err);
@@ -165,50 +195,82 @@ function getExtension(filename: string): string {
   return filename.split('.').pop()?.toLowerCase() ?? '';
 }
 
-function maskAndSerialize(
+/**
+ * Parse text-format buffers (CSV, JSON, NDJSON) into row arrays.
+ */
+function parseTextRows(
   buffer: Buffer,
   contentType: string,
-  filename: string,
-  columns?: string[],
-): { data: Buffer; piiMasked: number; piiColumns: { column: string; type: string }[] } {
-  const ext = getExtension(filename);
-
-  // Binary formats — no PII masking, pass through
-  if (['parquet', 'avro'].includes(ext)) {
-    return { data: buffer, piiMasked: 0, piiColumns: [] };
-  }
-
-  // Parse into rows
-  let rows: Record<string, string>[];
-  const cols = columns ?? [];
-
+  ext: string,
+): Record<string, string>[] {
   if (ext === 'csv' || contentType === 'text/csv') {
-    rows = parse(buffer, { columns: true, skip_empty_lines: true, relax_column_count: true }) as Record<string, string>[];
-  } else if (ext === 'json' || contentType === 'application/json') {
+    return parse(buffer, { columns: true, skip_empty_lines: true, relax_column_count: true }) as Record<string, string>[];
+  }
+  if (ext === 'json' || contentType === 'application/json') {
     const parsed = JSON.parse(buffer.toString('utf-8'));
-    rows = (Array.isArray(parsed) ? parsed : [parsed]) as Record<string, string>[];
-  } else if (ext === 'ndjson' || contentType === 'application/x-ndjson') {
-    rows = buffer.toString('utf-8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)) as Record<string, string>[];
-  } else {
-    return { data: buffer, piiMasked: 0, piiColumns: [] };
+    return (Array.isArray(parsed) ? parsed : [parsed]) as Record<string, string>[];
   }
-
-  if (rows.length === 0) {
-    return { data: buffer, piiMasked: 0, piiColumns: [] };
+  if (ext === 'ndjson' || contentType === 'application/x-ndjson') {
+    return buffer.toString('utf-8').split('\n').filter(l => l.trim()).map(l => JSON.parse(l)) as Record<string, string>[];
   }
+  return [];
+}
 
-  const effectiveCols = cols.length > 0 ? cols : Object.keys(rows[0]);
-  const { maskedRows, report } = maskPii(rows, effectiveCols);
+/**
+ * Reject an entire file: copy to rejected bucket, update Firestore, publish failure.
+ */
+async function rejectFile(
+  objectName: string,
+  _buffer: Buffer,
+  jobRef: FirebaseFirestore.DocumentReference,
+  jobId: string,
+  notification: GcsNotification,
+  error: string,
+): Promise<void> {
+  await storage
+    .bucket(RAW_BUCKET)
+    .file(objectName)
+    .copy(storage.bucket(REJECTED_BUCKET).file(objectName));
 
-  // Serialize back to original format
-  let data: Buffer;
-  if (ext === 'csv' || contentType === 'text/csv') {
-    data = Buffer.from(stringify(maskedRows, { header: true, columns: effectiveCols }));
-  } else if (ext === 'ndjson' || contentType === 'application/x-ndjson') {
-    data = Buffer.from(maskedRows.map(r => JSON.stringify(r)).join('\n') + '\n');
-  } else {
-    data = Buffer.from(JSON.stringify(maskedRows, null, 2));
-  }
+  await jobRef.update({
+    status: 'REJECTED',
+    error,
+    stats: { total_records: 0, valid: 0, rejected: 0, loaded: 0 },
+    updated_at: new Date().toISOString(),
+  });
 
-  return { data, piiMasked: report.totalMasked, piiColumns: report.maskedColumns };
+  await pubsub.topic(PIPELINE_FAILED_TOPIC).publishMessage({
+    json: {
+      jobId,
+      dataset: notification.metadata?.dataset,
+      error,
+      bronzePath: `gs://${RAW_BUCKET}/${objectName}`,
+    },
+  });
+
+  console.log(`Job ${jobId}: rejected — ${error}`);
+}
+
+/**
+ * Write rejected records and their errors to the rejection bucket as a NDJSON manifest.
+ */
+async function writeRejectionManifest(
+  objectName: string,
+  rejectedRows: RejectedRecord[],
+  jobId: string,
+): Promise<void> {
+  const manifestPath = objectName.replace(/\.[^.]+$/, '_rejected.ndjson');
+  const manifest = rejectedRows.map(r => JSON.stringify({
+    job_id: jobId,
+    errors: r.errors,
+    original_row: r.row,
+    rejected_at: new Date().toISOString(),
+  })).join('\n') + '\n';
+
+  await storage
+    .bucket(REJECTED_BUCKET)
+    .file(manifestPath)
+    .save(Buffer.from(manifest), { contentType: 'application/x-ndjson' });
+
+  console.log(`Job ${jobId}: wrote ${rejectedRows.length} rejected records to ${REJECTED_BUCKET}/${manifestPath}`);
 }

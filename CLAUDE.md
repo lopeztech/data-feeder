@@ -49,7 +49,10 @@ Runs as `sa-upload-api` service account with `serviceAccountTokenCreator` and `d
 The validator (`functions/validator/`) is a Pub/Sub-triggered Cloud Function that processes uploaded files:
 - Triggered by `file-uploaded` topic (GCS OBJECT_FINALIZE on Bronze bucket)
 - Validates CSV (csv-parse), JSON, NDJSON (schema/record check), Parquet/Avro (magic bytes)
-- **Pass**: copies to Silver bucket, updates Firestore → `TRANSFORMING`, publishes `validation-complete`
+- Text formats: PII masking → type inference → null standardization → type casting → deduplication → Parquet/Snappy conversion
+- Per-record validation: valid rows → Silver (Parquet), rejected rows → Rejected bucket (NDJSON manifest with errors)
+- Binary formats (Parquet/Avro): pass through unchanged after magic-byte validation
+- **Pass**: writes Parquet to Silver bucket, updates Firestore → `TRANSFORMING`, publishes `validation-complete`
 - **Fail**: copies to Rejected bucket, updates Firestore → `REJECTED`/`FAILED`, publishes `pipeline-failed`
 - Idempotency guard: only processes jobs with status `UPLOADING`
 
@@ -59,9 +62,9 @@ Runs as `sa-validator` service account with `datastore.user`, `pubsub.subscriber
 
 The loader (`functions/loader/`) is a Pub/Sub-triggered Cloud Function that loads validated data into BigQuery:
 - Triggered by `validation-complete` topic (published by validator)
-- Parses CSV/JSON/NDJSON from Silver bucket
-- Creates BigQuery table in `curated` dataset if it doesn't exist (schema inferred from data, day-partitioned)
-- Streams rows into BigQuery in batches of 500
+- Two-stage load: Silver Parquet → `staging` dataset (WRITE_TRUNCATE) → `curated` dataset (append)
+- Auto-detects high-cardinality columns for BigQuery clustering (up to 4 fields)
+- Creates Data Catalog tags on new Gold tables with source dataset and pipeline zone metadata
 - Updates Firestore → `LOADED` with row counts
 - On failure: updates Firestore → `FAILED`, publishes `pipeline-failed`
 - Idempotency guard: only processes jobs with status `TRANSFORMING`
@@ -78,7 +81,7 @@ K-Means clustering for player role identification (`pipelines/ml/`):
 - Runs as `sa-ml` service account via Vertex AI Pipelines
 
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket → GCS notifies Pub/Sub → Validator Cloud Function validates + masks PII (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to BigQuery (Silver→Gold) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
+Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket (date-partitioned paths: `dataset/year=YYYY/month=MM/day=DD/uuid/file`) → GCS notifies Pub/Sub → Validator Cloud Function validates, masks PII, type-casts, deduplicates, converts to Parquet/Snappy (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to staging (WRITE_TRUNCATE) then appends to curated with clustering + Data Catalog tags (Silver→Gold) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
 
 ## Terraform (Infrastructure as Code)
 
@@ -110,9 +113,11 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `src/pages/JobsPage.tsx` | Job list (live or mock) with status filter + detail modal |
 | `src/components/Layout.tsx` | Responsive sidebar nav + user panel |
 | `functions/upload-api/src/index.ts` | Cloud Function: /init, /jobs, /:id/status |
-| `functions/validator/src/index.ts` | Cloud Function: Pub/Sub handler for file validation |
+| `functions/validator/src/index.ts` | Cloud Function: Pub/Sub handler for file validation + transformation |
 | `functions/validator/src/validators.ts` | Pure validation logic per file format |
-| `functions/loader/src/index.ts` | Cloud Function: Silver→Gold BigQuery loader |
+| `functions/validator/src/schema.ts` | Type inference, casting, null standardization, deduplication |
+| `functions/validator/src/parquet.ts` | Parquet/Snappy writer for Silver output |
+| `functions/loader/src/index.ts` | Cloud Function: staging→curated BigQuery loader with clustering + Data Catalog |
 | `functions/loader/src/parsers.ts` | File parsing for BQ row conversion |
 | `pipelines/ml/pipeline.py` | KFP pipeline definition for K-Means clustering |
 | `pipelines/ml/components/` | Pipeline components: preprocess, train, evaluate, deploy |

@@ -68,11 +68,12 @@ Files never transit the application server. The browser talks directly to GCS:
                                   Content-Range headers, HTTP 308 on each chunk)
 
 3. GCS (Bronze)  →  OBJECT_FINALIZE event  →  Pub/Sub: file-uploaded
-4. Cloud Function (validator)  →  schema validation, type casting  →  Silver
-5. Dataflow                    →  transformation, aggregation       →  Gold → BigQuery
+4. Cloud Function (validator)  →  schema validation, type casting, PII masking,
+                                  dedup, Parquet conversion (Snappy)  →  Silver
+5. Cloud Function (loader)     →  staging (WRITE_TRUNCATE), curated (clustered)  →  Gold → BigQuery
 ```
 
-Object path convention: `<dataset>/<uuid>/<filename>`
+Object path convention: `<dataset>/year=YYYY/month=MM/day=DD/<uuid>/<filename>`
 
 Signed URLs expire after 15 minutes and are scoped to a single object path.
 
@@ -91,6 +92,37 @@ All buckets use:
 - **CMEK encryption** via Cloud KMS (`data-pipeline` key ring, per-layer keys, 90-day rotation)
 - **Uniform bucket-level access** (no per-object ACLs)
 - **Public access prevention: enforced**
+
+### Silver Layer Processing
+
+Text formats (CSV, JSON, NDJSON) undergo transformation before writing to Silver:
+1. **PII masking** — column-name and value-level detection for email, phone, SSN, name, address, DOB, credit card, IP
+2. **Type inference** — samples first 100 rows to detect INT64, FLOAT64, BOOLEAN, TIMESTAMP, or STRING
+3. **Null standardization** — normalizes `null`, `NULL`, `None`, `NA`, `N/A`, `NaN`, empty strings → `null`
+4. **Type casting** — values are cast to inferred types; rows that fail casting are rejected
+5. **Deduplication** — MD5 hash-based row dedup removes exact duplicates
+6. **Parquet conversion** — valid rows are written as Snappy-compressed Parquet files
+
+Binary formats (Parquet, Avro) pass through unchanged after magic-byte validation.
+
+Rejected records are written to the rejection bucket as NDJSON manifests with the original row data and error details.
+
+### Gold Layer Loading
+
+The loader uses a two-stage process:
+1. **Staging** — loads Silver Parquet into `staging` dataset with `WRITE_TRUNCATE` (idempotent per batch)
+2. **Curated** — appends from staging to `curated` dataset with DAY partitioning and auto-detected clustering
+3. **Data Catalog** — creates tags on new Gold tables with source dataset and pipeline zone metadata
+
+### Schema Evolution
+
+The pipeline supports backward-compatible schema evolution:
+
+- **Adding columns**: New nullable columns are automatically detected by schema auto-inference. BigQuery's `autodetect` + `WRITE_APPEND` allows new columns to be added to existing tables without breaking downstream queries.
+- **Type widening**: Columns that widen (e.g., INT64 → FLOAT64) are handled by the type inference step, which re-evaluates types per batch. BigQuery allows implicit widening for numeric types.
+- **Null handling**: All columns are treated as optional/nullable, so new columns default to `null` in historical rows.
+- **Breaking changes** (renaming columns, narrowing types, removing columns): These require manual intervention. The recommended approach is to create a new table version (e.g., `orders_v2`) and update downstream consumers, keeping the old table available until migration is complete.
+- **Schema is recorded**: Each job stores the inferred schema in Firestore for auditability.
 
 Job state transitions tracked in Firestore:
 
