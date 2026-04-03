@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { MOCK_JOBS } from '../data/mockJobs';
 import { listJobs, retriggerJob, fetchPreview, deleteJob, bulkDeleteJobs } from '../lib/uploadService';
@@ -187,6 +187,7 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
   const [tab, setTab] = useState<PreviewTab>('details');
   const [preview, setPreview] = useState<StagePreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const fetchingRef = useRef(false);
 
   const completionPct = job.stats.total_records > 0
     ? Math.round((job.stats.loaded / job.stats.total_records) * 100)
@@ -194,14 +195,15 @@ function JobDetail({ job, onClose, onRetrigger, onDelete }: {
   const canRetrigger = RETRIGGERABLE.includes(job.status) && !!onRetrigger;
 
   useEffect(() => {
-    if (tab !== 'details' && !preview && !previewLoading) {
-      setPreviewLoading(true);
-      fetchPreview(job.job_id)
-        .then(setPreview)
-        .catch(() => setPreview({ bronze: null, silver: null, curated: null }))
-        .finally(() => setPreviewLoading(false));
-    }
-  }, [tab, preview, previewLoading, job.job_id]);
+    if (tab === 'details' || preview || fetchingRef.current) return;
+    fetchingRef.current = true;
+    const controller = new AbortController();
+    fetchPreview(job.job_id)
+      .then(data => { if (!controller.signal.aborted) setPreview(data); })
+      .catch(() => { if (!controller.signal.aborted) setPreview({ bronze: null, silver: null, curated: null }); })
+      .finally(() => { fetchingRef.current = false; if (!controller.signal.aborted) setPreviewLoading(false); });
+    return () => controller.abort();
+  }, [tab, preview, job.job_id]);
 
   const tabs: { key: PreviewTab; label: string; available: boolean }[] = [
     { key: 'details', label: 'Details', available: true },

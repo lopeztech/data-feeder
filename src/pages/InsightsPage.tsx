@@ -279,44 +279,45 @@ export default function InsightsPage() {
   const { user } = useAuth();
   const isGuest = user?.role === 'guest';
 
-  const [clusterData, setClusterData] = useState<{ clusters: ClusterSummary[]; records: ClusterRecord[] } | null>(null);
-  const [anomalyData, setAnomalyData] = useState<AnomalyData | null>(null);
-  const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
-  const [sourceTables, setSourceTables] = useState<string[]>([]);
-  const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Compute guest initial state synchronously to avoid setState-in-effect
+  const guestMockModel = isGuest ? MOCK_MODELS.find(m => m.model === model && m.type === modelType) : null;
+  const guestSources = guestMockModel?.sourceTables ?? [];
+
+  const [clusterData, setClusterData] = useState<{ clusters: ClusterSummary[]; records: ClusterRecord[] } | null>(() =>
+    isGuest && modelType === 'clusters' ? { clusters: MOCK_CLUSTERS, records: MOCK_CLUSTER_RECORDS } : null
+  );
+  const [anomalyData, setAnomalyData] = useState<AnomalyData | null>(() =>
+    isGuest && modelType === 'anomalies' ? MOCK_ANOMALY_DATA : null
+  );
+  const [predictionData, setPredictionData] = useState<PredictionData | null>(() =>
+    isGuest && modelType === 'predictions' ? MOCK_PREDICTION_DATA : null
+  );
+  const [sourceTables, setSourceTables] = useState<string[]>(() => isGuest ? guestSources : []);
+  const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>(() =>
+    isGuest ? MOCK_LINEAGE_JOBS.filter(j => guestSources.includes(j.dataset)) : []
+  );
+  const [loading, setLoading] = useState(!isGuest);
   const [error, setError] = useState<string | null>(null);
   const [expandedCluster, setExpandedCluster] = useState<number | null>(null);
   const [lineageOpen, setLineageOpen] = useState(true);
 
   useEffect(() => {
-    if (!model) return;
+    if (!model || isGuest) return;
 
-    if (isGuest) {
-      const mockModel = MOCK_MODELS.find(m => m.model === model && m.type === modelType);
-      const sources = mockModel?.sourceTables ?? [];
-      setSourceTables(sources);
-      setLineageJobs(MOCK_LINEAGE_JOBS.filter(j => sources.includes(j.dataset)));
-      if (modelType === 'clusters') setClusterData({ clusters: MOCK_CLUSTERS, records: MOCK_CLUSTER_RECORDS });
-      else if (modelType === 'anomalies') setAnomalyData(MOCK_ANOMALY_DATA);
-      else if (modelType === 'predictions') setPredictionData(MOCK_PREDICTION_DATA);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
+    let cancelled = false;
     const dataFetch = modelType === 'clusters'
-      ? fetchClusters(model).then(d => { setClusterData({ clusters: d.clusters, records: d.records }); setSourceTables(d.sourceTables); })
+      ? fetchClusters(model).then(d => { if (!cancelled) { setClusterData({ clusters: d.clusters, records: d.records }); setSourceTables(d.sourceTables); } })
       : modelType === 'anomalies'
-      ? fetchAnomalies(model).then(d => { setAnomalyData(d); setSourceTables(d.sourceTables); })
-      : fetchPredictions(model).then(d => { setPredictionData(d); setSourceTables(d.sourceTables); });
+      ? fetchAnomalies(model).then(d => { if (!cancelled) { setAnomalyData(d); setSourceTables(d.sourceTables); } })
+      : fetchPredictions(model).then(d => { if (!cancelled) { setPredictionData(d); setSourceTables(d.sourceTables); } });
 
     Promise.all([dataFetch, listJobs().catch(() => [] as PipelineJob[])])
       .then(([, allJobs]) => {
-        setLineageJobs(allJobs.filter(j => j.status === 'LOADED'));
+        if (!cancelled) setLineageJobs(allJobs.filter(j => j.status === 'LOADED'));
       })
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [model, modelType, isGuest]);
 
   // Filter lineage jobs to source tables once both are loaded

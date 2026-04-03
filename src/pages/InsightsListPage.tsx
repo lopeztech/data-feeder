@@ -48,23 +48,23 @@ export default function InsightsListPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isGuest = user?.role === 'guest';
-  const [cards, setCards] = useState<ModelCard[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [cards, setCards] = useState<ModelCard[]>(() =>
+    isGuest ? enrichModels(MOCK_MODELS, MOCK_LINEAGE_JOBS) : []
+  );
+  const [loading, setLoading] = useState(!isGuest);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isGuest) {
-      setCards(enrichModels(MOCK_MODELS, MOCK_LINEAGE_JOBS));
-      return;
-    }
-    setLoading(true);
+    if (isGuest) return;
+    let cancelled = false;
     Promise.all([
       fetchModels(),
       listJobs().catch(() => [] as PipelineJob[]),
     ])
-      .then(([models, jobs]) => setCards(enrichModels(models, jobs)))
-      .catch(err => setError(err.message))
-      .finally(() => setLoading(false));
+      .then(([models, jobs]) => { if (!cancelled) setCards(enrichModels(models, jobs)); })
+      .catch(err => { if (!cancelled) setError(err.message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [isGuest]);
 
   return (
