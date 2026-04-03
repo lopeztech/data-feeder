@@ -3,7 +3,6 @@ import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
 import { PubSub } from '@google-cloud/pubsub';
 import { parse } from 'csv-parse/sync';
-import { stringify } from 'csv-stringify/sync';
 import { validate } from './validators.js';
 import { maskPii } from './pii.js';
 import { transformRows } from './schema.js';
