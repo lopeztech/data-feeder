@@ -11,6 +11,10 @@ npm run lint       # ESLint
 npm run preview    # Preview production build locally
 ```
 
+## Pre-commit checks
+
+Before committing, always run `npm run lint` from the repo root and fix any errors. CI runs the same check and will fail the build on lint errors. For Cloud Functions, also run `npm run typecheck` in each function directory that was modified (`functions/upload-api`, `functions/validator`, `functions/loader`).
+
 ## Environment
 
 Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully. `VITE_UPLOAD_API_URL` is optional locally (defaults to `/api/uploads`); in production it's set to the Cloud Function URL at Docker build time.
