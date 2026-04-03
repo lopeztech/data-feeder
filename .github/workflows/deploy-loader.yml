@@ -54,7 +54,7 @@ jobs:
             --entry-point=${{ env.ENTRY_POINT }} \
             --trigger-topic=validation-complete \
             --service-account=sa-dataflow@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="FIRESTORE_DATABASE=data-feeder,BQ_CURATED_DATASET=curated,PIPELINE_FAILED_TOPIC=pipeline-failed" \
+            --set-env-vars="FIRESTORE_DATABASE=data-feeder,BQ_CURATED_DATASET=curated,BQ_STAGING_DATASET=staging,PIPELINE_FAILED_TOPIC=pipeline-failed" \
             --memory=512Mi \
             --max-instances=10 \
             --timeout=540s \

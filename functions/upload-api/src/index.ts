@@ -153,7 +153,11 @@ async function handleInit(
 
     const user = extractUser(req.headers.authorization);
     const jobId = crypto.randomUUID();
-    const objectPath = `${body.dataset}/${jobId}/${body.filename}`;
+    const uploadDate = new Date();
+    const year = uploadDate.getUTCFullYear();
+    const month = String(uploadDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(uploadDate.getUTCDate()).padStart(2, '0');
+    const objectPath = `${body.dataset}/year=${year}/month=${month}/day=${day}/${jobId}/${body.filename}`;
     const contentType = body.contentType || 'application/octet-stream';
     const isResumable = body.fileSize > RESUMABLE_THRESHOLD;
 
