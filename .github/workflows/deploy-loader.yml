@@ -1,15 +1,19 @@
-name: Deploy Loader Function
+name: Deploy Loader (Dataflow + Launcher)
 
 on:
   push:
     branches: [main]
     paths:
+      - 'pipelines/dataflow/**'
       - 'functions/loader/**'
   workflow_dispatch:
 
 env:
   PROJECT_ID: data-feeder-lcd
   REGION: australia-southeast1
+  AR_REPO: data-feeder
+  TEMPLATE_IMAGE: australia-southeast1-docker.pkg.dev/data-feeder-lcd/data-feeder/loader-dataflow
+  TEMPLATE_PATH: gs://data-feeder-lcd-dataflow-templates/loader/loader-template.json
   FUNCTION_NAME: loader
   FUNCTION_DIR: functions/loader
   RUNTIME: nodejs20
@@ -20,10 +24,54 @@ permissions:
   id-token: write
 
 jobs:
-  deploy:
-    name: Deploy Loader
+  deploy-template:
+    name: Build & Deploy Flex Template
     runs-on: ubuntu-latest
     environment: prod
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push template image
+        working-directory: pipelines/dataflow
+        run: |
+          IMAGE="${{ env.TEMPLATE_IMAGE }}:${{ github.sha }}"
+          docker build -t "${IMAGE}" .
+          docker push "${IMAGE}"
+          docker tag "${IMAGE}" "${{ env.TEMPLATE_IMAGE }}:latest"
+          docker push "${{ env.TEMPLATE_IMAGE }}:latest"
+
+      - name: Build Flex Template spec
+        run: |
+          gcloud dataflow flex-template build ${{ env.TEMPLATE_PATH }} \
+            --image="${{ env.TEMPLATE_IMAGE }}:${{ github.sha }}" \
+            --sdk-language=PYTHON \
+            --metadata-file=pipelines/dataflow/metadata.json \
+            --project=${{ env.PROJECT_ID }}
+
+      - name: Show template info
+        run: |
+          echo "### Dataflow Flex Template Built" >> "$GITHUB_STEP_SUMMARY"
+          echo "Image: \`${{ env.TEMPLATE_IMAGE }}:${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Template: \`${{ env.TEMPLATE_PATH }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-launcher:
+    name: Deploy Launcher Function
+    runs-on: ubuntu-latest
+    environment: prod
+    needs: deploy-template
 
     steps:
       - uses: actions/checkout@v4
@@ -54,13 +102,14 @@ jobs:
             --entry-point=${{ env.ENTRY_POINT }} \
             --trigger-topic=validation-complete \
             --service-account=sa-dataflow@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
-            --set-env-vars="FIRESTORE_DATABASE=data-feeder,BQ_CURATED_DATASET=curated,BQ_STAGING_DATASET=staging,PIPELINE_FAILED_TOPIC=pipeline-failed" \
-            --memory=512Mi \
+            --set-env-vars="FIRESTORE_DATABASE=data-feeder,GCP_PROJECT=${{ env.PROJECT_ID }},GCP_REGION=${{ env.REGION }},DATAFLOW_TEMPLATE_PATH=${{ env.TEMPLATE_PATH }},DATAFLOW_TEMP_LOCATION=gs://${{ env.PROJECT_ID }}-dataflow-temp/tmp" \
+            --memory=256Mi \
             --max-instances=10 \
-            --timeout=540s \
+            --timeout=120s \
             --source=.
 
       - name: Show function info
         run: |
-          echo "### Loader Function Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Loader Launcher Deployed" >> "$GITHUB_STEP_SUMMARY"
           echo "Function: \`${{ env.FUNCTION_NAME }}\` (trigger: \`validation-complete\` topic)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Launches Dataflow template: \`${{ env.TEMPLATE_PATH }}\`" >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,61 @@
+{
+  "name": "Silver to Gold Loader",
+  "description": "Loads validated Parquet files from GCS Silver bucket into BigQuery staging and curated datasets with automatic clustering and day partitioning.",
+  "parameters": [
+    {
+      "name": "silver_gcs_path",
+      "label": "Silver GCS Path",
+      "helpText": "GCS path to the validated Parquet file (e.g. gs://bucket/dataset/year=2026/month=04/day=03/uuid/file.parquet).",
+      "isOptional": false,
+      "regexes": ["^gs://[a-z0-9._-]+/.+$"]
+    },
+    {
+      "name": "target_bq_table",
+      "label": "Target BigQuery Table",
+      "helpText": "Name for the BigQuery table in staging and curated datasets.",
+      "isOptional": false
+    },
+    {
+      "name": "job_id",
+      "label": "Job ID",
+      "helpText": "Pipeline job ID for Firestore status tracking.",
+      "isOptional": false
+    },
+    {
+      "name": "project_id",
+      "label": "GCP Project ID",
+      "helpText": "Google Cloud project ID.",
+      "isOptional": false
+    },
+    {
+      "name": "firestore_database",
+      "label": "Firestore Database",
+      "helpText": "Firestore database ID for job tracking.",
+      "isOptional": true
+    },
+    {
+      "name": "bq_staging_dataset",
+      "label": "Staging Dataset",
+      "helpText": "BigQuery staging dataset name.",
+      "isOptional": true
+    },
+    {
+      "name": "bq_curated_dataset",
+      "label": "Curated Dataset",
+      "helpText": "BigQuery curated (Gold) dataset name.",
+      "isOptional": true
+    },
+    {
+      "name": "dataset_location",
+      "label": "Dataset Location",
+      "helpText": "BigQuery dataset location.",
+      "isOptional": true
+    },
+    {
+      "name": "pipeline_failed_topic",
+      "label": "Pipeline Failed Topic",
+      "helpText": "Pub/Sub topic name for failure notifications.",
+      "isOptional": true
+    }
+  ]
+}
