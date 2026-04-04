@@ -60,6 +60,7 @@ jobs:
           docker build \
             --build-arg VITE_GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
             --build-arg VITE_UPLOAD_API_URL="${{ steps.fn-url.outputs.url }}" \
+            --build-arg VITE_COMMIT_SHA="${{ github.sha }}" \
             -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
             -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest \
             .
