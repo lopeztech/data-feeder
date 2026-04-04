@@ -208,6 +208,8 @@ async function detectClusteringFields(datasetId: string, tableName: string): Pro
     for (const col of cols as { column_name: string; data_type: string }[]) {
       // Prefer ID columns, timestamps, and string dimensions for clustering
       const name = col.column_name.toLowerCase();
+      // Skip BQ pseudo-columns (not real schema fields)
+      if (name.startsWith('_partitiontime') || name.startsWith('_partitiondate')) continue;
       const isIdLike = name.endsWith('_id') || name === 'id';
       const isTimestamp = ['TIMESTAMP', 'DATETIME', 'DATE'].includes(col.data_type);
       const isClusterable = ['STRING', 'INT64', 'NUMERIC', 'TIMESTAMP', 'DATETIME', 'DATE'].includes(col.data_type);
