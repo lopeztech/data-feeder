@@ -7,7 +7,6 @@ import { parse } from 'csv-parse/sync';
 import { validate } from './validators.js';
 import { maskPii } from './pii.js';
 import { transformRows } from './schema.js';
-import { writeParquet } from './parquet.js';
 import type { GcsNotification, MessagePublishedData, RejectedRecord } from './types.js';
 
 const storage = new Storage();
@@ -130,14 +129,17 @@ cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
       await writeRejectionManifest(objectName, rejectedRows, jobId);
     }
 
-    // Step 4: Convert valid rows to Parquet with Snappy compression and write to Silver
-    const silverObjectName = objectName.replace(/\.[^.]+$/, '.parquet');
-    const parquetBuffer = await writeParquet(validRows, schema);
+    // Step 4: Serialize valid rows to CSV and write to Silver
+    const { stringify } = await import('csv-stringify/sync');
+    const silverObjectName = objectName.replace(/\.[^.]+$/, '.csv');
+    const silverBuffer = Buffer.from(
+      stringify(validRows, { header: true, columns: columns }),
+    );
 
     await storage
       .bucket(SILVER_BUCKET)
       .file(silverObjectName)
-      .save(parquetBuffer, { contentType: 'application/octet-stream' });
+      .save(silverBuffer, { contentType: 'text/csv' });
 
     const piiInfo = piiReport.totalMasked > 0
       ? ` (PII masked: ${piiReport.maskedColumns.map(c => c.column).join(', ')})`
@@ -167,7 +169,7 @@ cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
         dataset: notification.metadata?.dataset,
         silverPath: `gs://${SILVER_BUCKET}/${silverObjectName}`,
         totalRecords: validRows.length,
-        contentType: 'application/octet-stream', // now Parquet
+        contentType: 'text/csv',
       },
     });
 
