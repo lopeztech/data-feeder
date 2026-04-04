@@ -801,7 +801,7 @@ async function handlePreview(
   }
 }
 
-const RETRIGGERABLE_STATUSES = ['UPLOADING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
+const RETRIGGERABLE_STATUSES = ['UPLOADING', 'VALIDATING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
 
 async function handleRetrigger(
   jobId: string,

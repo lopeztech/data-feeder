@@ -37,7 +37,7 @@ function StatusBadge({ status }: { status: JobStatus }) {
   );
 }
 
-const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
+const RETRIGGERABLE: JobStatus[] = ['UPLOADING', 'VALIDATING', 'FAILED', 'REJECTED', 'TRANSFORMING'];
 
 const PIPELINE_STAGES = [
   { key: 'UPLOADING', label: 'Upload', sublabel: 'Browser → GCS Bronze', color: 'gray' },
