@@ -26,6 +26,7 @@ cd functions/validator && npm ci && npm test && cd -  # Validator tests (separat
 
 - **`vite.config.ts` is compiled by `tsc`** via `tsconfig.node.json`. Adding Node.js imports (e.g. `child_process`, `fs`) requires `@types/node` in devDependencies and `"types": ["node"]` in `tsconfig.node.json`. Adding vitest `test:` config requires `/// <reference types="vitest/config" />`.
 - **Root vitest excludes `functions/**` and `pipelines/**`** — those directories have their own `node_modules` and test runners. Never remove these excludes from `vite.config.ts`.
+- **Function directories need their own `vitest.config.ts`** — without one, vitest walks up and finds the root `vite.config.ts`, which imports packages not available in the function's `node_modules` (e.g. `vite`, `@tailwindcss/vite`). Each function with tests must have a local `vitest.config.ts`.
 - **`npm run build` is the authoritative check**, not just `npm run lint` or `npm test`. The Docker build (`Dockerfile`) runs `npm run build`, so if `tsc` fails, Cloud Run deploy fails.
 - **Deploy workflows trigger on main push** — changes to `vite.config.ts`, `Dockerfile`, `package.json`, or `src/**` trigger `deploy.yml` (Cloud Run). Ensure the build passes locally before merging.
 - **Build args in Dockerfile** must match `deploy.yml` — if you add a new `VITE_*` env var, add corresponding `ARG`/`ENV` in `Dockerfile` and `--build-arg` in `.github/workflows/deploy.yml`.
