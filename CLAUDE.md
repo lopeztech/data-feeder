@@ -11,6 +11,25 @@ npm run lint       # ESLint
 npm run preview    # Preview production build locally
 ```
 
+## Pre-push checklist
+
+Before pushing any branch, **always run all three checks** and confirm they pass:
+
+```bash
+npm run build                                        # tsc -b && vite build — catches TS errors that break Docker/Cloud Run deploy
+npm run lint                                         # ESLint — 0 errors required (warnings OK)
+npm test                                             # Root vitest — must exit 0
+cd functions/validator && npm ci && npm test && cd -  # Validator tests (separate node_modules)
+```
+
+### Common pitfalls
+
+- **`vite.config.ts` is compiled by `tsc`** via `tsconfig.node.json`. Adding Node.js imports (e.g. `child_process`, `fs`) requires `@types/node` in devDependencies and `"types": ["node"]` in `tsconfig.node.json`. Adding vitest `test:` config requires `/// <reference types="vitest/config" />`.
+- **Root vitest excludes `functions/**` and `pipelines/**`** — those directories have their own `node_modules` and test runners. Never remove these excludes from `vite.config.ts`.
+- **`npm run build` is the authoritative check**, not just `npm run lint` or `npm test`. The Docker build (`Dockerfile`) runs `npm run build`, so if `tsc` fails, Cloud Run deploy fails.
+- **Deploy workflows trigger on main push** — changes to `vite.config.ts`, `Dockerfile`, `package.json`, or `src/**` trigger `deploy.yml` (Cloud Run). Ensure the build passes locally before merging.
+- **Build args in Dockerfile** must match `deploy.yml` — if you add a new `VITE_*` env var, add corresponding `ARG`/`ENV` in `Dockerfile` and `--build-arg` in `.github/workflows/deploy.yml`.
+
 ## Environment
 
 Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully. `VITE_UPLOAD_API_URL` is optional locally (defaults to `/api/uploads`); in production it's set to the Cloud Function URL at Docker build time.
