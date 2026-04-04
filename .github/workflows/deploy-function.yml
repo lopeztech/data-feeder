@@ -12,7 +12,7 @@ env:
   REGION: australia-southeast1
   FUNCTION_NAME: upload-api
   FUNCTION_DIR: functions/upload-api
-  RUNTIME: nodejs20
+  RUNTIME: nodejs22
   ENTRY_POINT: uploadApi
 
 permissions:

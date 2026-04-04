@@ -12,7 +12,7 @@ env:
   REGION: australia-southeast1
   FUNCTION_NAME: validator
   FUNCTION_DIR: functions/validator
-  RUNTIME: nodejs20
+  RUNTIME: nodejs22
   ENTRY_POINT: validator
 
 permissions:

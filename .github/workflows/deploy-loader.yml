@@ -16,7 +16,7 @@ env:
   TEMPLATE_PATH: gs://data-feeder-lcd-dataflow-templates/loader/loader-template.json
   FUNCTION_NAME: loader
   FUNCTION_DIR: functions/loader
-  RUNTIME: nodejs20
+  RUNTIME: nodejs22
   ENTRY_POINT: loader
 
 permissions:
