@@ -12,4 +12,7 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(commitHash),
   },
+  test: {
+    exclude: ['functions/**', 'pipelines/**', 'node_modules/**'],
+  },
 })
