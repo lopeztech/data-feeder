@@ -414,6 +414,7 @@ async function handleClusters(
     });
     const clusterCols = (clusterColRows as { column_name: string }[]).map(r => r.column_name);
     const scoreCol = clusterCols.find(c => c.includes('score')) || 'impact_score';
+    const clusterIdCol = clusterCols.find(c => c === 'cluster_id' || c === 'archetype_id') || 'cluster_id';
 
     if (sourceTables.length === 0) {
       res.status(404).json({ error: `No source tables found for model "${modelName}".` });
@@ -465,13 +466,13 @@ async function handleClusters(
     const [summaryRows] = await bigquery.query({
       query: `
         SELECT
-          c.cluster_id,
+          c.${clusterIdCol} AS cluster_id,
           COUNT(*) AS record_count,
           ${avgExprs}
         FROM \`${ctFull}\` c
         ${joins}
-        GROUP BY c.cluster_id
-        ORDER BY c.cluster_id
+        GROUP BY c.${clusterIdCol}
+        ORDER BY c.${clusterIdCol}
       `,
     });
 
@@ -495,14 +496,14 @@ async function handleClusters(
     const [recordRows] = await bigquery.query({
       query: `
         SELECT
-          c.cluster_id,
+          c.${clusterIdCol} AS cluster_id,
           CAST(c.${idCol} AS STRING) AS record_id,
           ROUND(c.${scoreCol}, 4) AS score
           ${fieldExprs ? ', ' + fieldExprs : ''}
         FROM \`${ctFull}\` c
         ${joins}
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.cluster_id ORDER BY c.${scoreCol} DESC) <= 10
-        ORDER BY c.cluster_id, c.${scoreCol} DESC
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY c.${clusterIdCol} ORDER BY c.${scoreCol} DESC) <= 10
+        ORDER BY c.${clusterIdCol}, c.${scoreCol} DESC
       `,
     });
 
@@ -676,12 +677,21 @@ async function handlePredictions(
     const positionCol = stringCols.find(sc => sc.col === 'position');
     const positionExpr = positionCol ? `, ${positionCol.alias}.position` : '';
 
+    // Detect prediction column names (predicted_rating or predicted_win_pct, etc.)
+    const [predColRows] = await bigquery.query({
+      query: `SELECT column_name FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = @tbl`,
+      params: { tbl: outputTable },
+    });
+    const predCols = (predColRows as { column_name: string }[]).map(r => r.column_name);
+    const predictedCol = predCols.find(c => c.startsWith('predicted_')) || 'predicted_rating';
+    const actualCol = predCols.find(c => c.startsWith('actual_')) || 'actual_rating';
+
     // Summary metrics
     const [summaryRows] = await bigquery.query({
       query: `
         SELECT
           COUNT(*) AS total,
-          ROUND(POWER(CORR(predicted_rating, actual_rating), 2), 4) AS r2_approx,
+          ROUND(POWER(CORR(${predictedCol}, ${actualCol}), 2), 4) AS r2_approx,
           ROUND(AVG(ABS(residual)), 4) AS mae,
           ROUND(SQRT(AVG(residual * residual)), 4) AS rmse,
           ROUND(AVG(residual), 4) AS mean_residual
@@ -695,8 +705,8 @@ async function handlePredictions(
       query: `
         SELECT
           CAST(p.${idCol} AS STRING) AS record_id,
-          ROUND(p.predicted_rating, 4) AS predicted_rating,
-          ROUND(p.actual_rating, 4) AS actual_rating,
+          ROUND(p.${predictedCol}, 4) AS predicted_rating,
+          ROUND(p.${actualCol}, 4) AS actual_rating,
           ROUND(p.residual, 4) AS residual
           ${labelExpr}
           ${positionExpr}

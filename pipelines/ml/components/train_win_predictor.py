@@ -31,7 +31,7 @@ def train_win_predictor(
     import numpy as np
     from sklearn.ensemble import GradientBoostingRegressor
     from sklearn.preprocessing import StandardScaler
-    from sklearn.model_selection import TimeSeriesSplit, cross_val_predict, cross_val_score
+    from sklearn.model_selection import KFold, cross_val_predict, cross_val_score
     from google.cloud import bigquery
 
     # Read raw data from the feature view
@@ -53,7 +53,7 @@ def train_win_predictor(
     controllable_feature_cols = [c for c in df.columns if c not in controllable_drop]
 
     y = df[target_col].fillna(0).astype(float).values
-    tscv = TimeSeriesSplit(n_splits=5)
+    kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 
     gbr_params = dict(
         n_estimators=200,
@@ -79,11 +79,11 @@ def train_win_predictor(
         model = GradientBoostingRegressor(**gbr_params)
 
         # TimeSeriesSplit CV predictions
-        cv_predictions = cross_val_predict(model, X, y, cv=tscv)
+        cv_predictions = cross_val_predict(model, X, y, cv=kfold)
 
         # CV scores for metrics
-        cv_scores = cross_val_score(model, X, y, cv=tscv, scoring="r2")
-        mae_scores = -cross_val_score(model, X, y, cv=tscv, scoring="neg_mean_absolute_error")
+        cv_scores = cross_val_score(model, X, y, cv=kfold, scoring="r2")
+        mae_scores = -cross_val_score(model, X, y, cv=kfold, scoring="neg_mean_absolute_error")
 
         # Fit final model on all data for feature importances
         model.fit(X, y)
