@@ -12,19 +12,22 @@ const navItems = [
     ),
   },
   {
-    to: '/upload',
-    label: 'Upload',
-    icon: (
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-    ),
-  },
-  {
     to: '/jobs',
     label: 'Pipeline Jobs',
     icon: (
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
         d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+    ),
+  },
+];
+
+const settingsItems = [
+  {
+    to: '/upload',
+    label: 'Upload Data',
+    icon: (
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
     ),
   },
 ];
@@ -87,6 +90,30 @@ export default function Layout() {
         ))}
       </nav>
 
+      {/* Settings section */}
+      <div className="px-4 pb-2">
+        <p className="px-3 mb-1 text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Settings</p>
+        {settingsItems.map(({ to, label, icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            onClick={() => setSidebarOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                isActive
+                  ? 'bg-brand-50 text-brand-700'
+                  : 'text-gray-600 hover:bg-gray-100'
+              }`
+            }
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              {icon}
+            </svg>
+            {label}
+          </NavLink>
+        ))}
+      </div>
+
       {/* User section */}
       <div className="p-4 border-t border-gray-100">
         {user?.role === 'guest' && (
@@ -122,7 +149,7 @@ export default function Layout() {
   );
 
   // Derive page title from current route for the mobile header
-  const pageTitle = navItems.find(n => location.pathname.startsWith(n.to))?.label ?? 'Data Feeder';
+  const pageTitle = [...navItems, ...settingsItems].find(n => location.pathname.startsWith(n.to))?.label ?? 'Data Feeder';
 
   return (
     <div className="flex min-h-screen bg-gray-50">

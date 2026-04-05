@@ -13,28 +13,8 @@ interface ModelCard extends ModelInfo {
   latestDate: string;
 }
 
-type UseCase = 'all' | 'nfl' | 'european-football';
-
-const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; icon: string; patterns: string[] }> = {
-  nfl: {
-    label: 'NFL',
-    icon: '🏈',
-    patterns: ['nfl_', 'team_win', 'team_archetype', 'team_optimal', 'team_feature', 'positional_value'],
-  },
-  'european-football': {
-    label: 'European Football',
-    icon: '⚽',
-    patterns: ['all_player_', 'player_'],
-  },
-};
-
-function detectUseCase(card: ModelInfo): Exclude<UseCase, 'all'> {
-  const allNames = [card.model, card.outputTable, ...card.sourceTables].join(' ').toLowerCase();
-  for (const [uc, meta] of Object.entries(USE_CASE_META) as [Exclude<UseCase, 'all'>, typeof USE_CASE_META[keyof typeof USE_CASE_META]][]) {
-    if (meta.patterns.some(p => allNames.includes(p))) return uc;
-  }
-  return 'european-football'; // default for player-based models
-}
+import { detectUseCase, USE_CASE_META } from '../lib/useCases';
+import type { UseCase } from '../lib/useCases';
 
 const TYPE_META: Record<ModelType, { label: string; badge: string; description: string }> = {
   clusters: { label: 'Clustering', badge: 'bg-blue-100 text-blue-700', description: 'K-Means cluster analysis' },
@@ -131,7 +111,7 @@ export default function InsightsListPage() {
       )}
 
       {!loading && !error && cards.length > 0 && (() => {
-        const tagged = cards.map(c => ({ ...c, useCase: detectUseCase(c) }));
+        const tagged = cards.map(c => ({ ...c, useCase: detectUseCase([c.model, c.outputTable, ...c.sourceTables]) }));
         const useCases = [...new Set(tagged.map(c => c.useCase))];
         const filtered = useCaseFilter === 'all' ? tagged : tagged.filter(c => c.useCase === useCaseFilter);
         const groups = useCases

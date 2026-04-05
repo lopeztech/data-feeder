@@ -4,6 +4,8 @@ import { MOCK_JOBS } from '../data/mockJobs';
 import { listJobs, retriggerJob, fetchPreview, deleteJob, bulkDeleteJobs } from '../lib/uploadService';
 import type { StagePreview } from '../lib/uploadService';
 import { PipelineJob, JobStatus } from '../types';
+import { detectUseCaseFromString, USE_CASE_META } from '../lib/useCases';
+import type { UseCase } from '../lib/useCases';
 
 const STATUS_STYLES: Record<JobStatus, { bg: string; text: string; dot: string; label: string }> = {
   UPLOADING:    { bg: 'bg-blue-50',   text: 'text-blue-700',   dot: 'bg-blue-400',   label: 'Uploading' },
@@ -368,6 +370,7 @@ const PAGE_SIZE = 20;
 export default function JobsPage() {
   const { user } = useAuth();
   const [filter, setFilter] = useState<JobStatus | 'ALL'>('ALL');
+  const [useCaseFilter, setUseCaseFilter] = useState<UseCase>('all');
   const [datasetFilter, setDatasetFilter] = useState<string>('ALL');
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
@@ -465,14 +468,26 @@ export default function JobsPage() {
 
   const jobs = isGuest ? MOCK_JOBS : liveJobs;
 
-  const datasetOptions = useMemo(() => {
-    const datasets = Array.from(new Set(jobs.map(j => j.dataset))).sort();
-    return datasets;
+  const useCases = useMemo(() => {
+    const ucs = new Set(jobs.map(j => detectUseCaseFromString(j.dataset)));
+    return [...ucs] as Exclude<UseCase, 'all'>[];
   }, [jobs]);
+
+  const datasetOptions = useMemo(() => {
+    let source = jobs;
+    if (useCaseFilter !== 'all') source = source.filter(j => detectUseCaseFromString(j.dataset) === useCaseFilter);
+    return Array.from(new Set(source.map(j => j.dataset))).sort();
+  }, [jobs, useCaseFilter]);
 
   // Reset page when filters or sort change
   const handleStatusFilter = useCallback((s: JobStatus | 'ALL') => {
     setFilter(s);
+    setCurrentPage(1);
+  }, []);
+
+  const handleUseCaseFilter = useCallback((uc: UseCase) => {
+    setUseCaseFilter(uc);
+    setDatasetFilter('ALL');
     setCurrentPage(1);
   }, []);
 
@@ -501,6 +516,7 @@ export default function JobsPage() {
   // Filter -> Sort -> Paginate pipeline
   const filteredJobs = useMemo(() => {
     let result = jobs;
+    if (useCaseFilter !== 'all') result = result.filter(j => detectUseCaseFromString(j.dataset) === useCaseFilter);
     if (filter !== 'ALL') result = result.filter(j => j.status === filter);
     if (datasetFilter !== 'ALL') result = result.filter(j => j.dataset === datasetFilter);
     return result;
@@ -614,6 +630,34 @@ export default function JobsPage() {
           )}
         </div>
       </div>
+
+      {/* Use case filter */}
+      {useCases.length > 1 && (
+        <div className="flex gap-2 mb-4 flex-wrap">
+          <button
+            onClick={() => handleUseCaseFilter('all')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+              useCaseFilter === 'all' ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            All
+          </button>
+          {useCases.map(uc => {
+            const meta = USE_CASE_META[uc];
+            return (
+              <button
+                key={uc}
+                onClick={() => handleUseCaseFilter(uc)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${
+                  useCaseFilter === uc ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {meta.icon} {meta.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Status filter + dataset filter */}
       <div className="flex gap-2 mb-6 flex-wrap items-center">
