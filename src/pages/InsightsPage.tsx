@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { fetchClusters, fetchAnomalies, fetchPredictions, listJobs } from '../lib/uploadService';
-import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, ModelType } from '../lib/uploadService';
+import { fetchClusters, fetchAnomalies, fetchPredictions, fetchProfile, listJobs } from '../lib/uploadService';
+import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, ProfileData, ModelType } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
 import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
 
@@ -25,7 +25,7 @@ function formatBytes(b: number) { return b < 1024 ? `${b} B` : b < 1048576 ? `${
 function formatDate(iso: string) { return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
 function metricLabel(key: string) { return key.replace(/^avg_/, '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()); }
 
-const TYPE_LABELS: Record<ModelType, string> = { clusters: 'K-Means Clustering', anomalies: 'Anomaly Detection', predictions: 'Rating Prediction' };
+const TYPE_LABELS: Record<ModelType, string> = { clusters: 'K-Means Clustering', anomalies: 'Anomaly Detection', predictions: 'Prediction Model', profile: 'Profile Analysis' };
 
 // ── Cluster helpers ──
 
@@ -271,6 +271,69 @@ function PredictionsView({ data }: { data: PredictionData }) {
   );
 }
 
+// ── Profile View ──
+
+function ProfileView({ data }: { data: ProfileData }) {
+  const numericCols = data.columns.filter(c => ['FLOAT64', 'INT64', 'NUMERIC'].includes(c.type));
+  const stringCols = data.columns.filter(c => c.type === 'STRING');
+  const labelCol = stringCols[0]?.name;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-400">Records</p>
+          <p className="text-2xl font-bold text-gray-900">{data.total}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-400">Columns</p>
+          <p className="text-2xl font-bold text-gray-900">{data.columns.length}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-400">Table</p>
+          <p className="text-sm font-semibold text-gray-700 truncate">{data.outputTable}</p>
+        </div>
+        <div className="bg-white border border-gray-200 rounded-xl p-4">
+          <p className="text-xs text-gray-400">Numeric Fields</p>
+          <p className="text-2xl font-bold text-gray-900">{numericCols.length}</p>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 bg-gray-50">
+          <h2 className="text-sm font-semibold text-gray-700">Data</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50">
+                {data.columns.map(col => (
+                  <th key={col.name} className="text-left px-4 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">
+                    {col.name}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {data.records.map((row, i) => (
+                <tr key={labelCol ? String(row[labelCol]) : i} className="hover:bg-gray-50">
+                  {data.columns.map(col => (
+                    <td key={col.name} className="px-4 py-2 text-gray-700 whitespace-nowrap max-w-[200px] truncate">
+                      {typeof row[col.name] === 'number'
+                        ? (Number(row[col.name]) % 1 !== 0 ? Number(row[col.name]).toFixed(4) : String(row[col.name]))
+                        : String(row[col.name] ?? '')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Main Page ──
 
 export default function InsightsPage() {
@@ -282,6 +345,7 @@ export default function InsightsPage() {
   const [clusterData, setClusterData] = useState<{ clusters: ClusterSummary[]; records: ClusterRecord[] } | null>(null);
   const [anomalyData, setAnomalyData] = useState<AnomalyData | null>(null);
   const [predictionData, setPredictionData] = useState<PredictionData | null>(null);
+  const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [sourceTables, setSourceTables] = useState<string[]>([]);
   const [lineageJobs, setLineageJobs] = useState<PipelineJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -310,6 +374,8 @@ export default function InsightsPage() {
       ? fetchClusters(model).then(d => { setClusterData({ clusters: d.clusters, records: d.records }); setSourceTables(d.sourceTables); })
       : modelType === 'anomalies'
       ? fetchAnomalies(model).then(d => { setAnomalyData(d); setSourceTables(d.sourceTables); })
+      : modelType === 'profile'
+      ? fetchProfile(model).then(d => { setProfileData(d); setSourceTables(d.sourceTables); })
       : fetchPredictions(model).then(d => { setPredictionData(d); setSourceTables(d.sourceTables); });
 
     Promise.all([dataFetch, listJobs().catch(() => [] as PipelineJob[])])
@@ -322,7 +388,7 @@ export default function InsightsPage() {
 
   // Filter lineage jobs to source tables once both are loaded
   const filteredLineage = lineageJobs.filter(j => sourceTables.includes(j.dataset));
-  const hasData = clusterData || anomalyData || predictionData;
+  const hasData = clusterData || anomalyData || predictionData || profileData;
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
@@ -415,6 +481,7 @@ export default function InsightsPage() {
           {clusterData && <ClustersView clusters={clusterData.clusters} records={clusterData.records} expandedCluster={expandedCluster} setExpandedCluster={setExpandedCluster} />}
           {anomalyData && <AnomaliesView data={anomalyData} />}
           {predictionData && <PredictionsView data={predictionData} />}
+          {profileData && <ProfileView data={profileData} />}
         </>
       )}
 

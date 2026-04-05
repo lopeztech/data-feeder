@@ -16,7 +16,8 @@ interface ModelCard extends ModelInfo {
 const TYPE_META: Record<ModelType, { label: string; badge: string; description: string }> = {
   clusters: { label: 'Clustering', badge: 'bg-blue-100 text-blue-700', description: 'K-Means cluster analysis' },
   anomalies: { label: 'Anomaly Detection', badge: 'bg-amber-100 text-amber-700', description: 'Isolation Forest outlier detection' },
-  predictions: { label: 'Regression', badge: 'bg-green-100 text-green-700', description: 'Rating prediction model' },
+  predictions: { label: 'Regression', badge: 'bg-green-100 text-green-700', description: 'Prediction model' },
+  profile: { label: 'Profile Analysis', badge: 'bg-purple-100 text-purple-700', description: 'Statistical profiling and feature analysis' },
 };
 
 function enrichModels(models: ModelInfo[], jobs: PipelineJob[]): ModelCard[] {
@@ -71,7 +72,7 @@ export default function InsightsListPage() {
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">AI Insights</h1>
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Insights</h1>
         <p className="text-gray-500 mt-1 text-sm">
           Select a model to view its data lineage and ML insights.
         </p>

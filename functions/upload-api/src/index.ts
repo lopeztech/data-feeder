@@ -107,6 +107,13 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /profile/:model
+  const profileMatch = req.path.match(/^\/profile\/([a-zA-Z0-9_-]+)$/);
+  if (req.method === 'GET' && profileMatch) {
+    handleProfile(profileMatch[1], res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -287,12 +294,17 @@ async function handleBulkDelete(
   }
 }
 
-type ModelType = 'clusters' | 'anomalies' | 'predictions';
+type ModelType = 'clusters' | 'anomalies' | 'predictions' | 'profile';
 
 const MODEL_SUFFIXES: { suffix: string; type: ModelType }[] = [
   { suffix: '_clusters', type: 'clusters' },
   { suffix: '_anomalies', type: 'anomalies' },
   { suffix: '_rating_predictions', type: 'predictions' },
+  { suffix: '_win_predictions', type: 'predictions' },
+  { suffix: '_archetypes', type: 'clusters' },
+  { suffix: '_feature_importances', type: 'profile' },
+  { suffix: '_optimal_profile', type: 'profile' },
+  { suffix: '_value_weights', type: 'profile' },
 ];
 
 function isModelTable(name: string): boolean {
@@ -340,7 +352,11 @@ async function discoverModels(): Promise<DiscoveredModel[]> {
     const colNames = (cols as { column_name: string }[]).map(r => r.column_name);
     // ID column = anything that's not a known output column
     const outputCols = ['cluster_id', 'impact_score', 'anomaly_score', 'is_anomaly',
-      'predicted_rating', 'actual_rating', 'residual'];
+      'predicted_rating', 'actual_rating', 'residual', 'predicted_win_pct', 'actual_win_pct',
+      'archetype_id', 'archetype_label', 'avg_win_pct', 'importance', 'rank', 'direction',
+      'model_type', 'elite_p25', 'elite_median', 'elite_p75', 'league_median',
+      'ridge_coefficient', 'gap', 'contribution_weight', 'team_feature_importance',
+      'positional_value', 'team_feature', 'position'];
     const idCol = colNames.find(c => !outputCols.includes(c)) || 'player_id';
 
     // Find source tables that share the ID column (exclude all model output tables)
@@ -704,6 +720,50 @@ async function handlePredictions(
   } catch (err) {
     console.error('Predictions error:', err);
     res.status(500).json({ error: 'Failed to fetch prediction data.' });
+  }
+}
+
+async function handleProfile(
+  modelName: string,
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const models = await discoverModels();
+    const model = models.find(m => m.model === modelName && m.type === 'profile');
+    if (!model) {
+      res.status(404).json({ error: `No profile table found for model "${modelName}".` });
+      return;
+    }
+
+    const { outputTable, sourceTables } = model;
+    const table = `${BQ_CURATED_DATASET}.${outputTable}`;
+
+    // Get column info
+    const [colInfo] = await bigquery.query({
+      query: `SELECT column_name, data_type FROM \`${BQ_CURATED_DATASET}.INFORMATION_SCHEMA.COLUMNS\` WHERE table_name = @tbl ORDER BY ordinal_position`,
+      params: { tbl: outputTable },
+    });
+    const columns = (colInfo as { column_name: string; data_type: string }[]).map(c => ({
+      name: c.column_name,
+      type: c.data_type,
+    }));
+
+    // Fetch all rows (profile tables are small)
+    const [rows] = await bigquery.query({ query: `SELECT * FROM \`${table}\` ORDER BY 1 LIMIT 200` });
+    const records = rows as Record<string, unknown>[];
+
+    res.status(200).json({
+      model: modelName,
+      type: 'profile',
+      sourceTables,
+      outputTable,
+      columns,
+      total: records.length,
+      records,
+    });
+  } catch (err) {
+    console.error('Profile error:', err);
+    res.status(500).json({ error: 'Failed to fetch profile data.' });
   }
 }
 

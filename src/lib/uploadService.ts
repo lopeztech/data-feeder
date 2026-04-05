@@ -137,7 +137,7 @@ export interface ClusterData {
   records: ClusterRecord[];
 }
 
-export type ModelType = 'clusters' | 'anomalies' | 'predictions';
+export type ModelType = 'clusters' | 'anomalies' | 'predictions' | 'profile';
 
 export interface ModelInfo {
   model: string;
@@ -218,6 +218,26 @@ export async function fetchPredictions(model: string): Promise<PredictionData> {
   const res = await fetch(`${API_BASE}/predictions/${encodeURIComponent(model)}`, { headers });
   if (!res.ok) throw new Error(`Predictions fetch failed (${res.status})`);
   return res.json() as Promise<PredictionData>;
+}
+
+export interface ProfileData {
+  model: string;
+  type: 'profile';
+  sourceTables: string[];
+  outputTable: string;
+  columns: { name: string; type: string }[];
+  total: number;
+  records: Record<string, unknown>[];
+}
+
+export async function fetchProfile(model: string): Promise<ProfileData> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${API_BASE}/profile/${encodeURIComponent(model)}`, { headers });
+  if (!res.ok) throw new Error(`Profile fetch failed (${res.status})`);
+  return res.json() as Promise<ProfileData>;
 }
 
 export async function getUploadStatus(uploadId: string): Promise<unknown> {
