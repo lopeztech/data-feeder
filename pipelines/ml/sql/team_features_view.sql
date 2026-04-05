@@ -4,7 +4,7 @@ SELECT
   team,
   wins,
   losses,
-  ties,
+  IFNULL(ties, 0) AS ties,
   win_loss_perc,
   points,
   points_opp,
