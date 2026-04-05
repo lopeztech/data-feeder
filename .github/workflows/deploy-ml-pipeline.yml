@@ -49,12 +49,16 @@ jobs:
         working-directory: pipelines/ml
         run: pip install -r requirements.txt
 
-      - name: Create BigQuery feature view
+      - name: Create BigQuery feature views
         run: |
           bq query \
             --project_id=${{ env.PROJECT_ID }} \
             --use_legacy_sql=false \
             < pipelines/ml/sql/player_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/team_features_view.sql
 
       - name: Create pipeline_runs table
         run: |
@@ -141,9 +145,119 @@ jobs:
           print(f'Rating pipeline submitted: {job.resource_name}')
           "
 
+      # --- Team win predictor pipeline ---
+      - name: Compile team win predictor pipeline
+        working-directory: pipelines/ml
+        run: python team_win_predictor_pipeline.py
+
+      - name: Upload team win predictor pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp team_win_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-win-predictor/pipeline.json
+
+      - name: Submit team win predictor pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='team-win-predictor-$(date +%Y%m%d-%H%M)',
+              template_path='team_win_predictor_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Team win predictor submitted: {job.resource_name}')
+          "
+
+      # --- Team archetype clustering pipeline ---
+      - name: Compile team archetype pipeline
+        working-directory: pipelines/ml
+        run: python team_archetype_pipeline.py
+
+      - name: Upload team archetype pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp team_archetype_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-archetype-clustering/pipeline.json
+
+      - name: Submit team archetype pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='team-archetype-clustering-$(date +%Y%m%d-%H%M)',
+              template_path='team_archetype_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Team archetype clustering submitted: {job.resource_name}')
+          "
+
+      # --- Team optimal profile pipeline ---
+      - name: Compile team optimal profile pipeline
+        working-directory: pipelines/ml
+        run: python team_optimal_profile_pipeline.py
+
+      - name: Upload team optimal profile pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp team_optimal_profile_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-optimal-profile/pipeline.json
+
+      - name: Submit team optimal profile pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='team-optimal-profile-$(date +%Y%m%d-%H%M)',
+              template_path='team_optimal_profile_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Team optimal profile submitted: {job.resource_name}')
+          "
+
+      # --- Team-to-player bridge pipeline ---
+      - name: Compile team player bridge pipeline
+        working-directory: pipelines/ml
+        run: python team_player_bridge_pipeline.py
+
+      - name: Upload team player bridge pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp team_player_bridge_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-player-bridge/pipeline.json
+
+      - name: Submit team player bridge pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='team-player-bridge-$(date +%Y%m%d-%H%M)',
+              template_path='team_player_bridge_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'Team player bridge submitted: {job.resource_name}')
+          "
+
       - name: Show pipeline info
         run: |
           echo "### ML Pipelines Deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### Player Pipelines" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Clustering**: \`player-role-clustering\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Anomaly Detection**: \`player-anomaly-detection\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Rating Prediction**: \`player-rating-prediction\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### Team Pipelines" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Win Predictor**: \`team-win-predictor\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Archetype Clustering**: \`team-archetype-clustering\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Optimal Profile**: \`team-optimal-profile\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Player Bridge**: \`team-player-bridge\`" >> "$GITHUB_STEP_SUMMARY"
