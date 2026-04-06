@@ -1,6 +1,11 @@
-export type UseCase = 'all' | 'nfl' | 'european-football';
+export type UseCase = 'all' | 'f1' | 'nfl' | 'european-football' | 'other';
 
 export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; icon: string; patterns: string[] }> = {
+  f1: {
+    label: 'Formula 1',
+    icon: '🏎️',
+    patterns: ['f1_', 'formula1', 'formula_1', 'circuits', 'constructors', 'drivers', 'lap_times', 'pit_stops', 'qualifying', 'races', 'results', 'seasons', 'sprint_results', 'status', 'constructor_results', 'constructor_standings', 'driver_standings'],
+  },
   nfl: {
     label: 'NFL',
     icon: '🏈',
@@ -10,6 +15,11 @@ export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; ico
     label: 'European Football',
     icon: '⚽',
     patterns: ['all_player_', 'player_'],
+  },
+  other: {
+    label: 'Other',
+    icon: '📊',
+    patterns: [],
   },
 };
 
@@ -21,7 +31,7 @@ export function detectUseCaseFromString(name: string): Exclude<UseCase, 'all'> {
   for (const [uc, meta] of USE_CASE_ENTRIES) {
     if (meta.patterns.some(p => lower.includes(p))) return uc;
   }
-  return 'european-football';
+  return 'other';
 }
 
 /** Detect use case from multiple strings (model name + source tables, etc.) */

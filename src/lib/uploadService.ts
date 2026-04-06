@@ -12,6 +12,7 @@ export interface InitUploadRequest {
   dataset: string;
   bqTable: string;
   description?: string;
+  category?: string;
 }
 
 export interface InitUploadResponse {

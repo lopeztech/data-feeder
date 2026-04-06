@@ -186,6 +186,7 @@ async function handleInit(
             dataset: body.dataset,
             jobId,
             uploadedBy: user.email,
+            category: body.category || '',
           },
         },
       });
@@ -215,6 +216,7 @@ async function handleInit(
       silver_path: null,
       bq_table: body.bqTable || body.dataset,
       description: body.description || null,
+      category: body.category || null,
       stats: { total_records: 0, valid: 0, rejected: 0, loaded: 0 },
       error: null,
     };

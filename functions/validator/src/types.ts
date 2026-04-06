@@ -8,6 +8,7 @@ export interface GcsNotification {
     dataset?: string;
     jobId?: string;
     uploadedBy?: string;
+    category?: string;
   };
 }
 

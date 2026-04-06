@@ -7,6 +7,8 @@ import {
   resumableUploadToGCS,
   RESUMABLE_THRESHOLD,
 } from '../lib/uploadService';
+import { USE_CASE_META } from '../lib/useCases';
+import type { UseCase } from '../lib/useCases';
 
 const ACCEPTED_FORMATS: Record<string, string[]> = {
   'text/csv': ['.csv'],
@@ -192,6 +194,7 @@ export default function UploadPage() {
   const isGuest = user?.role === 'guest';
 
   const [file, setFile] = useState<File | null>(null);
+  const [category, setCategory] = useState<Exclude<UseCase, 'all'> | ''>('');
   const [dataset, setDataset] = useState('');
   const [datasetTouched, setDatasetTouched] = useState(false);
   const [description, setDescription] = useState('');
@@ -213,8 +216,9 @@ export default function UploadPage() {
     if (!newFile) { setPreview(null); setPreviewLoading(false); return; }
     // Auto-populate dataset and BQ table from filename (strip extension, lowercase, underscores)
     const baseName = newFile.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
-    if (!datasetTouched) setDataset(baseName);
-    if (!bqTableTouched) setBqTable(baseName);
+    const prefixed = category ? `${category === 'european-football' ? 'football' : category}_${baseName}` : baseName;
+    if (!datasetTouched) setDataset(prefixed);
+    if (!bqTableTouched) setBqTable(prefixed);
 
     if (getExtension(newFile.name) === 'zip') {
       setPreviewLoading(true);
@@ -258,6 +262,7 @@ export default function UploadPage() {
         dataset,
         bqTable: bqTable || dataset,
         description: description || undefined,
+        category: category || undefined,
       });
 
       setUploadId(init.uploadId);
@@ -276,7 +281,7 @@ export default function UploadPage() {
   };
 
   const handleReset = () => {
-    handleFileChange(null); setDataset(''); setDatasetTouched(false); setDescription(''); setBqTable('');
+    handleFileChange(null); setCategory(''); setDataset(''); setDatasetTouched(false); setDescription(''); setBqTable('');
     setBqTableTouched(false); setSchemaFile(null); setPreview(null);
     setProgress(null); setUploadError(null); setUploadId(null); setSubmitted(false);
   };
@@ -489,6 +494,33 @@ export default function UploadPage() {
 
         {/* Metadata */}
         <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setCategory('')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${!category ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              >
+                None
+              </button>
+              {(Object.entries(USE_CASE_META) as [Exclude<UseCase, 'all'>, typeof USE_CASE_META[keyof typeof USE_CASE_META]][] ).filter(([k]) => k !== 'other').map(([key, meta]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setCategory(key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${category === key ? 'bg-brand-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {meta.icon} {meta.label}
+                </button>
+              ))}
+            </div>
+            {category && (
+              <p className="text-xs text-gray-400 mt-1">
+                {category === 'f1' ? 'Formula 1' : category === 'nfl' ? 'NFL' : 'European Football'} datasets will be grouped together in Pipeline Jobs and Insights.
+              </p>
+            )}
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">

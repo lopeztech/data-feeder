@@ -305,6 +305,13 @@ async function handleZipArchive(
     return;
   }
 
+  // Read category from parent job for child dataset naming
+  const parentDoc = await parentJobRef.get();
+  const categoryRaw = parentDoc.data()?.category as string | undefined;
+  const categoryPrefix = categoryRaw && categoryRaw !== 'european-football'
+    ? (categoryRaw === 'european-football' ? 'football' : categoryRaw) + '_'
+    : (notification.metadata?.category ? notification.metadata.category + '_' : '');
+
   const childJobIds: string[] = [];
   const basePath = objectName.replace(/[^/]+$/, '');
 
@@ -313,7 +320,8 @@ async function handleZipArchive(
     const name = entry.entryName.split('/').pop() ?? entry.entryName;
     const ct = ZIP_CT[getExtension(name)] || 'application/octet-stream';
     const childId = crypto.randomUUID();
-    const ds = name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
+    const rawName = name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
+    const ds = `${categoryPrefix}${rawName}`;
     const path = `${basePath}${childId}/${name}`;
     const upBy = notification.metadata?.uploadedBy ?? '';
 
