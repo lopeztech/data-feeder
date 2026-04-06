@@ -12,7 +12,7 @@
     "@google-cloud/datacatalog": "^4.5.0",
     "@google-cloud/firestore": "^8.3.0",
     "@google-cloud/functions-framework": "^3.4.5",
-    "@google-cloud/pubsub": "^4.11.0",
+    "@google-cloud/pubsub": "^5.3.0",
     "@google-cloud/storage": "^7.19.0"
   },
   "devDependencies": {
