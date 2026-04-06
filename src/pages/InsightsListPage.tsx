@@ -1,58 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { fetchModels, listJobs } from '../lib/uploadService';
+import { fetchModels } from '../lib/uploadService';
 import type { ModelInfo, ModelType } from '../lib/uploadService';
-import type { PipelineJob } from '../types';
-import { MOCK_MODELS, MOCK_LINEAGE_JOBS } from '../data/mockClusters';
-
-interface ModelCard extends ModelInfo {
-  totalUploads: number;
-  totalRows: number;
-  totalSize: number;
-  latestDate: string;
-}
-
+import { MOCK_MODELS } from '../data/mockClusters';
 import { detectUseCase, USE_CASE_META } from '../lib/useCases';
 import type { UseCase } from '../lib/useCases';
+import { getNarrative } from '../lib/narratives';
 
-const TYPE_META: Record<ModelType, { label: string; badge: string; description: string }> = {
-  clusters: { label: 'Clustering', badge: 'bg-blue-100 text-blue-700', description: 'K-Means cluster analysis' },
-  anomalies: { label: 'Anomaly Detection', badge: 'bg-amber-100 text-amber-700', description: 'Isolation Forest outlier detection' },
-  predictions: { label: 'Regression', badge: 'bg-green-100 text-green-700', description: 'Prediction model' },
-  profile: { label: 'Profile Analysis', badge: 'bg-purple-100 text-purple-700', description: 'Statistical profiling and feature analysis' },
+const TYPE_META: Record<ModelType, { label: string; badge: string }> = {
+  clusters: { label: 'Clustering', badge: 'bg-blue-100 text-blue-700' },
+  anomalies: { label: 'Anomaly Detection', badge: 'bg-amber-100 text-amber-700' },
+  predictions: { label: 'Regression', badge: 'bg-green-100 text-green-700' },
+  profile: { label: 'Profile Analysis', badge: 'bg-purple-100 text-purple-700' },
 };
-
-function enrichModels(models: ModelInfo[], jobs: PipelineJob[]): ModelCard[] {
-  const loadedJobs = jobs.filter(j => j.status === 'LOADED');
-  return models.map(m => {
-    const relatedJobs = loadedJobs.filter(j => m.sourceTables.includes(j.dataset));
-    return {
-      ...m,
-      totalUploads: relatedJobs.length,
-      totalRows: relatedJobs.reduce((s, j) => s + (j.stats?.loaded ?? 0), 0),
-      totalSize: relatedJobs.reduce((s, j) => s + j.file_size_bytes, 0),
-      latestDate: relatedJobs.reduce((latest, j) => j.updated_at > latest ? j.updated_at : latest, ''),
-    };
-  });
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return '-';
-  return new Date(iso).toLocaleDateString('en-AU', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-}
 
 export default function InsightsListPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const isGuest = user?.role === 'guest';
-  const [cards, setCards] = useState<ModelCard[]>([]);
+  const [cards, setCards] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useCaseFilter, setUseCaseFilter] = useState<UseCase>('all');
@@ -60,15 +27,12 @@ export default function InsightsListPage() {
   useEffect(() => {
     if (isGuest) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
-      setCards(enrichModels(MOCK_MODELS, MOCK_LINEAGE_JOBS));
+      setCards(MOCK_MODELS);
       return;
     }
     setLoading(true);
-    Promise.all([
-      fetchModels(),
-      listJobs().catch(() => [] as PipelineJob[]),
-    ])
-      .then(([models, jobs]) => setCards(enrichModels(models, jobs)))
+    fetchModels()
+      .then(setCards)
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));
   }, [isGuest]);
@@ -184,35 +148,19 @@ export default function InsightsListPage() {
                             </svg>
                           </div>
 
-                          <p className="text-xs text-gray-400 mb-3">{meta.description}</p>
-
-                          <div className="mb-3 space-y-1">
-                            {c.sourceTables.map(st => (
-                              <div key={st} className="flex items-center gap-1.5 text-xs text-gray-500">
-                                <svg className="w-3 h-3 text-teal-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 14h18M3 18h18M3 6h18" />
-                                </svg>
-                                <span className="truncate">{st}</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-3">
-                            <div>
-                              <p className="text-xs text-gray-400">Uploads</p>
-                              <p className="text-sm font-semibold text-gray-900">{c.totalUploads}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-gray-400">Rows</p>
-                              <p className="text-sm font-semibold text-gray-900">{c.totalRows.toLocaleString()}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-gray-400">Size</p>
-                              <p className="text-sm font-semibold text-gray-900">{formatBytes(c.totalSize)}</p>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-gray-400 mt-3">Last updated {formatDate(c.latestDate)}</p>
+                          {(() => {
+                            const narrative = getNarrative(c.model, c.type, c.outputTable);
+                            return (
+                              <>
+                                <p className="text-sm font-medium text-gray-700 mb-2">{narrative.title}</p>
+                                <p className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-3">{narrative.overview}</p>
+                                <div className="border-t border-gray-100 pt-2">
+                                  <p className="text-xs font-medium text-gray-500 mb-1">Key actions:</p>
+                                  <p className="text-xs text-gray-400 line-clamp-2">{narrative.actions[0]}</p>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </button>
                       );
                     })}
