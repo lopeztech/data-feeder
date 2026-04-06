@@ -123,6 +123,38 @@ export default function InsightsListPage() {
                     <span className="text-xs text-gray-400">{groupCards.length} {groupCards.length === 1 ? 'model' : 'models'}</span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {uc === 'nfl' && (
+                      <button
+                        key="nfl-teams"
+                        onClick={() => navigate('/nfl-teams')}
+                        className="text-left bg-white border border-gray-200 rounded-xl p-5 hover:border-brand-300 hover:shadow-md transition-all group"
+                      >
+                        <div className="flex items-center gap-3 mb-3">
+                          <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center group-hover:bg-brand-100 transition-colors">
+                            <svg className="w-4.5 h-4.5 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-semibold text-gray-900 text-sm truncate">NFL Teams</h3>
+                            <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700">
+                              Composite Analysis
+                            </span>
+                          </div>
+                          <svg className="w-4 h-4 text-gray-300 group-hover:text-brand-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                          </svg>
+                        </div>
+                        <p className="text-sm font-medium text-gray-700 mb-2">Team Dominance Rankings</p>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-3 line-clamp-3">
+                          Composite dominance scoring ranks all NFL teams across winning record, offensive output, defensive strength, and efficiency. Identifies the best teams historically and the stats that separate elite from average.
+                        </p>
+                        <div className="border-t border-gray-100 pt-2">
+                          <p className="text-xs font-medium text-gray-500 mb-1">Key actions:</p>
+                          <p className="text-xs text-gray-400 line-clamp-2">Compare team pillars (winning, offence, defence, efficiency) to identify strengths and weaknesses for roster decisions</p>
+                        </div>
+                      </button>
+                    )}
                     {groupCards.map(c => {
                       const meta = TYPE_META[c.type];
                       return (
