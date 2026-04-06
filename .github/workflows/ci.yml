@@ -26,8 +26,17 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Unit tests
-        run: npm test
+      - name: Unit tests with coverage
+        run: npx vitest run --coverage --reporter=default --passWithNoTests
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/coverage-final.json
+          flags: spa
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   test-functions:
     name: Function Tests
@@ -50,6 +59,15 @@ jobs:
         run: npm ci
         working-directory: functions/${{ matrix.function }}
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage
+        run: npx vitest run --coverage --passWithNoTests
         working-directory: functions/${{ matrix.function }}
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: functions/${{ matrix.function }}/coverage/coverage-final.json
+          flags: ${{ matrix.function }}
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
