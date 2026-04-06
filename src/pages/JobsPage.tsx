@@ -520,7 +520,7 @@ export default function JobsPage() {
     if (filter !== 'ALL') result = result.filter(j => j.status === filter);
     if (datasetFilter !== 'ALL') result = result.filter(j => j.dataset === datasetFilter);
     return result;
-  }, [jobs, filter, datasetFilter]);
+  }, [jobs, filter, datasetFilter, useCaseFilter]);
 
   const sortedJobs = useMemo(() => {
     if (!sortColumn || !sortDirection) return filteredJobs;
