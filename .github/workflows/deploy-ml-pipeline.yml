@@ -59,6 +59,18 @@ jobs:
             --project_id=${{ env.PROJECT_ID }} \
             --use_legacy_sql=false \
             < pipelines/ml/sql/team_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/f1_driver_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/f1_constructor_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/f1_pitstop_features_view.sql
 
       - name: Create pipeline_runs table
         run: |
@@ -275,6 +287,84 @@ jobs:
           print(f'NFL team analysis submitted: {job.resource_name}')
           "
 
+      # --- F1 Driver Predictor pipeline ---
+      - name: Compile F1 driver predictor pipeline
+        working-directory: pipelines/ml
+        run: python f1_driver_predictor_pipeline.py
+
+      - name: Upload F1 driver predictor pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp f1_driver_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-driver-predictor/pipeline.json
+
+      - name: Submit F1 driver predictor pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='f1-driver-predictor-$(date +%Y%m%d-%H%M)',
+              template_path='f1_driver_predictor_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'F1 driver predictor submitted: {job.resource_name}')
+          "
+
+      # --- F1 Constructor Dominance pipeline ---
+      - name: Compile F1 constructor dominance pipeline
+        working-directory: pipelines/ml
+        run: python f1_constructor_dominance_pipeline.py
+
+      - name: Upload F1 constructor dominance pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp f1_constructor_dominance_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-constructor-dominance/pipeline.json
+
+      - name: Submit F1 constructor dominance pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='f1-constructor-dominance-$(date +%Y%m%d-%H%M)',
+              template_path='f1_constructor_dominance_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'F1 constructor dominance submitted: {job.resource_name}')
+          "
+
+      # --- F1 Pit Stop Strategy pipeline ---
+      - name: Compile F1 pitstop strategy pipeline
+        working-directory: pipelines/ml
+        run: python f1_pitstop_strategy_pipeline.py
+
+      - name: Upload F1 pitstop strategy pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp f1_pitstop_strategy_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-pitstop-strategy/pipeline.json
+
+      - name: Submit F1 pitstop strategy pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='f1-pitstop-strategy-$(date +%Y%m%d-%H%M)',
+              template_path='f1_pitstop_strategy_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'F1 pitstop strategy submitted: {job.resource_name}')
+          "
+
       - name: Show pipeline info
         run: |
           echo "### ML Pipelines Deployed" >> "$GITHUB_STEP_SUMMARY"
@@ -282,9 +372,13 @@ jobs:
           echo "- **Clustering**: \`player-role-clustering\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Anomaly Detection**: \`player-anomaly-detection\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Rating Prediction**: \`player-rating-prediction\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "#### Team Pipelines" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### NFL Team Pipelines" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Win Predictor**: \`team-win-predictor\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Archetype Clustering**: \`team-archetype-clustering\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Optimal Profile**: \`team-optimal-profile\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Player Bridge**: \`team-player-bridge\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **NFL Team Analysis**: \`nfl-team-analysis\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### F1 Pipelines" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Driver Predictor**: \`f1-driver-predictor\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Constructor Dominance**: \`f1-constructor-dominance\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Pit Stop Strategy**: \`f1-pitstop-strategy\`" >> "$GITHUB_STEP_SUMMARY"

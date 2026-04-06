@@ -4,7 +4,7 @@ export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; ico
   f1: {
     label: 'Formula 1',
     icon: '🏎️',
-    patterns: ['f1_', 'formula1', 'formula_1', 'circuits', 'constructors', 'drivers', 'lap_times', 'pit_stops', 'qualifying', 'races', 'results', 'seasons', 'sprint_results', 'status', 'constructor_results', 'constructor_standings', 'driver_standings'],
+    patterns: ['f1_', 'formula1', 'formula_1', 'circuits', 'constructors', 'drivers', 'lap_times', 'pit_stops', 'qualifying', 'races', 'results', 'seasons', 'sprint_results', 'status', 'constructor_results', 'constructor_standings', 'driver_standings', 'f1_driver', 'f1_constructor', 'f1_pitstop'],
   },
   nfl: {
     label: 'NFL',

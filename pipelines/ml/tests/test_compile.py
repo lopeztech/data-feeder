@@ -107,3 +107,30 @@ def test_compile_nfl_team_analysis_pipeline(tmp_path):
 
     data = json.loads(out.read_text())
     assert "root" in data, "Compiled JSON missing 'root' key"
+
+
+def test_compile_f1_driver_predictor_pipeline(tmp_path):
+    from f1_driver_predictor_pipeline import f1_driver_predictor_pipeline
+
+    out = tmp_path / "f1_driver_predictor.json"
+    Compiler().compile(pipeline_func=f1_driver_predictor_pipeline, package_path=str(out))
+    data = json.loads(out.read_text())
+    assert "root" in data
+
+
+def test_compile_f1_constructor_dominance_pipeline(tmp_path):
+    from f1_constructor_dominance_pipeline import f1_constructor_dominance_pipeline
+
+    out = tmp_path / "f1_constructor_dominance.json"
+    Compiler().compile(pipeline_func=f1_constructor_dominance_pipeline, package_path=str(out))
+    data = json.loads(out.read_text())
+    assert "root" in data
+
+
+def test_compile_f1_pitstop_strategy_pipeline(tmp_path):
+    from f1_pitstop_strategy_pipeline import f1_pitstop_strategy_pipeline
+
+    out = tmp_path / "f1_pitstop_strategy.json"
+    Compiler().compile(pipeline_func=f1_pitstop_strategy_pipeline, package_path=str(out))
+    data = json.loads(out.read_text())
+    assert "root" in data

@@ -95,6 +95,79 @@ export function getNarrative(modelName: string, modelType: string, outputTable?:
     fineTuning: 'The contamination rate (default 5%) controls how many anomalies are flagged. Increase to 10% for a broader scan, decrease to 2% for only the most extreme outliers. If too many goalkeepers are flagged, consider separate models by position.',
   };
 
+  // F1 models
+  if (outputTable?.includes('f1_driver_predictions') || (key.includes('f1_driver') && modelType === 'predictions')) return {
+    title: 'F1 Driver Race Performance',
+    overview: 'A GradientBoosting model predicts each driver\'s race finish position from their grid slot, qualifying performance, and historical data. The residual reveals which drivers consistently outperform or underperform their starting position.',
+    whatItShows: 'Drivers with positive residuals (actual better than predicted) are extracting more from their car than expected \u2014 indicating superior racecraft, tyre management, or wet-weather ability. Negative residuals suggest a driver is losing places from their grid slot.',
+    actions: [
+      'Drivers with consistently positive residuals across seasons are elite race performers \u2014 prioritize for team signings',
+      'Grid position is the strongest predictor, but drivers who overcome poor qualifying are strategically valuable',
+      'Compare residuals between teammates to isolate driver skill from car performance',
+    ],
+    fineTuning: 'The model uses only finishers (DNFs excluded). To include reliability, add a separate DNF prediction model. Consider era-specific models since F1 regulations change significantly across decades.',
+  };
+
+  if (outputTable?.includes('f1_constructor_rankings') || (key.includes('f1_constructor') && modelType === 'clusters')) return {
+    title: 'F1 Constructor Dominance Rankings',
+    overview: 'A composite dominance score ranks every F1 constructor across their full history, weighted by win rate (30%), podium rate (25%), points per race (20%), reliability (15%), and average finish position (10%). K-Means clustering identifies constructor archetypes.',
+    whatItShows: 'The rankings separate truly dominant constructors from merely competitive ones. Archetypes reveal different paths to success \u2014 some teams win through raw pace, others through reliability and consistency.',
+    actions: [
+      'Compare your constructor\'s archetype to the dominant cluster to identify what metrics to prioritize',
+      'Reliability is weighted 15% but separates good teams from great ones \u2014 a fast but fragile car leaves points on the table',
+      'Use per-season data to identify when constructors entered or exited their dominant era \u2014 regulation changes are key inflection points',
+    ],
+    fineTuning: 'The composite weights (30/25/20/15/10) reflect modern F1 value. For historical analysis pre-2003, consider adjusting points_per_race weight since point systems changed. Increase k to 6+ if archetypes are too broad.',
+  };
+
+  if (outputTable?.includes('f1_pitstop') || (key.includes('f1_pitstop') && modelType === 'predictions')) return {
+    title: 'F1 Pit Stop Strategy Impact',
+    overview: 'A GradientBoosting model predicts positions gained or lost based on pit stop strategy \u2014 number of stops, stop speed, timing, and grid position. Feature importances quantify whether faster pit crews or better strategy timing matters more.',
+    whatItShows: 'The model separates the impact of pit execution (how fast the stops are) from pit strategy (when and how many times to stop). Per-constructor pit stats reveal which teams have the fastest crews and which gain the most through strategy.',
+    actions: [
+      'If pit duration importance is high, invest in pit crew training and equipment \u2014 each second costs approximately 0.5 positions',
+      'First stop timing (lap number) importance shows whether early or late stopping strategies gain more positions',
+      'Compare constructor pit stats to identify which teams have a strategic advantage vs a mechanical advantage',
+    ],
+    fineTuning: 'The model excludes stops over 120 seconds (penalties, red flags). Safety car pit stops are included but distort timing importance \u2014 consider adding a safety_car flag if available. Grid position dominates predictions; try a model without grid to isolate pure strategy impact.',
+  };
+
+  if (outputTable?.includes('f1_driver_feature_importances')) return {
+    title: 'What Predicts F1 Race Results?',
+    overview: 'Feature importance rankings from the driver performance model show which factors most strongly predict where a driver finishes. Grid position typically dominates, but the remaining features reveal what separates good race days from bad ones.',
+    whatItShows: 'Higher importance = stronger predictive power. After grid position, qualifying performance and race distance (laps) contribute most. Year captures era effects \u2014 modern F1 has less overtaking, making grid position even more dominant.',
+    actions: [
+      'If grid importance exceeds 0.70, qualifying performance is paramount \u2014 one-lap pace is the biggest differentiator',
+      'Laps/race distance importance suggests endurance and tyre management matter at specific circuits',
+      'Use these importances to focus driver development programs on the highest-impact skills',
+    ],
+    fineTuning: null,
+  };
+
+  if (outputTable?.includes('f1_pitstop_feature_importances')) return {
+    title: 'Pit Strategy: Speed vs Timing',
+    overview: 'Feature importances from the pit stop model show whether fast pit execution or strategic timing contributes more to gaining positions during a race.',
+    whatItShows: 'Grid position captures the overall competitive position; after that, stop count and timing reveal strategic value. If avg_stop_duration ranks high, pit crew performance is a genuine competitive advantage.',
+    actions: [
+      'If stop timing (first_stop_lap) outranks stop duration, strategy calls matter more than pit crew speed',
+      'If total_stops is important, the number of stops (1-stop vs 2-stop) is a key strategic decision',
+      'Use per-constructor breakdown to benchmark your pit crew against the field',
+    ],
+    fineTuning: null,
+  };
+
+  if (outputTable?.includes('f1_constructor_pit_stats')) return {
+    title: 'Constructor Pit Crew Performance',
+    overview: 'Per-constructor, per-season pit stop statistics showing average and fastest stop durations, total stops, and the average positions gained through pit windows.',
+    whatItShows: 'Constructors with lower average pit durations and higher positions gained have a combined strategic and mechanical advantage. Comparing across years shows which teams are improving their pit operations.',
+    actions: [
+      'Benchmark pit duration against the top 3 teams to quantify the gap',
+      'Track year-over-year improvement \u2014 teams investing in pit crew training show measurable duration decreases',
+      'Cross-reference with positions gained to see if faster stops translate to actual race positions',
+    ],
+    fineTuning: null,
+  };
+
   if (modelType === 'predictions' && modelName === 'player') return {
     title: 'Player Rating Prediction',
     overview: 'A GradientBoosting model predicts each player\'s match rating from their performance statistics. The residual (predicted - actual) reveals players whose stats suggest they should be rated higher or lower than they are.',

@@ -31,6 +31,7 @@ interface InitBody {
   dataset: string;
   bqTable: string;
   description?: string;
+  category?: string;
 }
 
 function extractUser(authHeader: string | undefined): { uid: string; email: string } {
@@ -313,6 +314,11 @@ const MODEL_SUFFIXES: { suffix: string; type: ModelType }[] = [
   { suffix: '_feature_importances', type: 'profile' },
   { suffix: '_optimal_profile', type: 'profile' },
   { suffix: '_value_weights', type: 'profile' },
+  { suffix: '_driver_predictions', type: 'predictions' },
+  { suffix: '_constructor_rankings', type: 'clusters' },
+  { suffix: '_constructor_seasons', type: 'profile' },
+  { suffix: '_pitstop_analysis', type: 'predictions' },
+  { suffix: '_constructor_pit_stats', type: 'profile' },
 ];
 
 function isModelTable(name: string): boolean {
