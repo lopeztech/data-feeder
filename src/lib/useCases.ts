@@ -4,7 +4,7 @@ export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; ico
   nfl: {
     label: 'NFL',
     icon: '🏈',
-    patterns: ['nfl_', 'team_win', 'team_archetype', 'team_optimal', 'team_feature', 'positional_value'],
+    patterns: ['nfl_', 'team_win', 'team_archetype', 'team_optimal', 'team_feature', 'positional_value', 'team_dominance'],
   },
   'european-football': {
     label: 'European Football',

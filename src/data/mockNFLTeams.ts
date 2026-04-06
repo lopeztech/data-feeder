@@ -1,0 +1,40 @@
+import type { NFLTeamAnalysisData } from '../types/nflTeams';
+
+export const MOCK_NFL_ANALYSIS: NFLTeamAnalysisData = {
+  rankings: [
+    { rank: 1, team: 'New England Patriots', composite_score: 1.2843, mean_dominance: 1.0512, peak_dominance: 2.1345, seasons_top_8: 14, total_wins: 225, total_losses: 107, avg_win_pct: 0.677, avg_points_per_game: 27.8, avg_points_opp_per_game: 19.6, best_season_year: 2007 },
+    { rank: 2, team: 'Kansas City Chiefs', composite_score: 1.1021, mean_dominance: 0.8934, peak_dominance: 1.8765, seasons_top_8: 11, total_wins: 207, total_losses: 125, avg_win_pct: 0.623, avg_points_per_game: 26.2, avg_points_opp_per_game: 21.3, best_season_year: 2020 },
+    { rank: 3, team: 'Green Bay Packers', composite_score: 0.9876, mean_dominance: 0.8123, peak_dominance: 1.7234, seasons_top_8: 10, total_wins: 201, total_losses: 131, avg_win_pct: 0.605, avg_points_per_game: 25.7, avg_points_opp_per_game: 21.1, best_season_year: 2011 },
+    { rank: 4, team: 'Pittsburgh Steelers', composite_score: 0.9234, mean_dominance: 0.7845, peak_dominance: 1.5987, seasons_top_8: 9, total_wins: 198, total_losses: 131, avg_win_pct: 0.601, avg_points_per_game: 24.3, avg_points_opp_per_game: 20.5, best_season_year: 2004 },
+    { rank: 5, team: 'Baltimore Ravens', composite_score: 0.8765, mean_dominance: 0.7234, peak_dominance: 1.5456, seasons_top_8: 9, total_wins: 195, total_losses: 136, avg_win_pct: 0.589, avg_points_per_game: 24.1, avg_points_opp_per_game: 19.8, best_season_year: 2019 },
+    { rank: 6, team: 'Indianapolis Colts', composite_score: 0.8123, mean_dominance: 0.6789, peak_dominance: 1.4567, seasons_top_8: 8, total_wins: 188, total_losses: 144, avg_win_pct: 0.566, avg_points_per_game: 25.2, avg_points_opp_per_game: 22.1, best_season_year: 2005 },
+    { rank: 7, team: 'Seattle Seahawks', composite_score: 0.7654, mean_dominance: 0.6234, peak_dominance: 1.3987, seasons_top_8: 8, total_wins: 186, total_losses: 146, avg_win_pct: 0.560, avg_points_per_game: 23.8, avg_points_opp_per_game: 20.4, best_season_year: 2013 },
+    { rank: 8, team: 'Philadelphia Eagles', composite_score: 0.7234, mean_dominance: 0.5987, peak_dominance: 1.3456, seasons_top_8: 7, total_wins: 185, total_losses: 147, avg_win_pct: 0.557, avg_points_per_game: 24.5, avg_points_opp_per_game: 21.7, best_season_year: 2017 },
+    { rank: 9, team: 'San Francisco 49ers', composite_score: 0.6987, mean_dominance: 0.5456, peak_dominance: 1.3123, seasons_top_8: 7, total_wins: 178, total_losses: 153, avg_win_pct: 0.537, avg_points_per_game: 23.4, avg_points_opp_per_game: 21.2, best_season_year: 2019 },
+    { rank: 10, team: 'Denver Broncos', composite_score: 0.6456, mean_dominance: 0.5123, peak_dominance: 1.2345, seasons_top_8: 7, total_wins: 175, total_losses: 157, avg_win_pct: 0.527, avg_points_per_game: 23.1, avg_points_opp_per_game: 21.8, best_season_year: 2013 },
+  ],
+  seasons: [
+    { year: 2007, team: 'New England Patriots', dominance_score: 2.1345, pillar_winning: 2.5, pillar_offence: 2.3, pillar_defence: 1.2, pillar_efficiency: 1.8, win_loss_perc: 1.0, is_elite: 1 },
+    { year: 2020, team: 'Kansas City Chiefs', dominance_score: 1.8765, pillar_winning: 1.9, pillar_offence: 2.1, pillar_defence: 1.0, pillar_efficiency: 1.7, win_loss_perc: 0.875, is_elite: 1 },
+    { year: 2011, team: 'Green Bay Packers', dominance_score: 1.7234, pillar_winning: 2.1, pillar_offence: 1.9, pillar_defence: 0.8, pillar_efficiency: 1.5, win_loss_perc: 0.938, is_elite: 1 },
+    { year: 2013, team: 'Seattle Seahawks', dominance_score: 1.6987, pillar_winning: 1.8, pillar_offence: 1.1, pillar_defence: 2.2, pillar_efficiency: 1.6, win_loss_perc: 0.813, is_elite: 1 },
+    { year: 2004, team: 'Pittsburgh Steelers', dominance_score: 1.5987, pillar_winning: 1.9, pillar_offence: 1.3, pillar_defence: 1.7, pillar_efficiency: 1.4, win_loss_perc: 0.938, is_elite: 1 },
+    { year: 2019, team: 'Baltimore Ravens', dominance_score: 1.5456, pillar_winning: 1.7, pillar_offence: 1.8, pillar_defence: 1.3, pillar_efficiency: 1.5, win_loss_perc: 0.875, is_elite: 1 },
+    { year: 2013, team: 'Denver Broncos', dominance_score: 1.5234, pillar_winning: 1.6, pillar_offence: 2.4, pillar_defence: 0.4, pillar_efficiency: 1.3, win_loss_perc: 0.813, is_elite: 1 },
+    { year: 2005, team: 'Indianapolis Colts', dominance_score: 1.4567, pillar_winning: 1.7, pillar_offence: 1.9, pillar_defence: 0.9, pillar_efficiency: 1.2, win_loss_perc: 0.875, is_elite: 1 },
+    { year: 2017, team: 'Philadelphia Eagles', dominance_score: 1.3456, pillar_winning: 1.6, pillar_offence: 1.5, pillar_defence: 1.4, pillar_efficiency: 1.1, win_loss_perc: 0.813, is_elite: 1 },
+    { year: 2019, team: 'San Francisco 49ers', dominance_score: 1.3123, pillar_winning: 1.6, pillar_offence: 1.4, pillar_defence: 1.5, pillar_efficiency: 1.0, win_loss_perc: 0.813, is_elite: 1 },
+  ],
+  drivers: [
+    { feature_name: 'points_diff', importance: 0.1823, rank: 1, elite_mean: 142.5, league_mean: 0.0, elite_advantage: 142.5 },
+    { feature_name: 'mov', importance: 0.1456, rank: 2, elite_mean: 8.9, league_mean: 0.0, elite_advantage: 8.9 },
+    { feature_name: 'score_pct', importance: 0.0987, rank: 3, elite_mean: 42.3, league_mean: 35.2, elite_advantage: 7.1 },
+    { feature_name: 'yds_per_play_offense', importance: 0.0876, rank: 4, elite_mean: 5.92, league_mean: 5.38, elite_advantage: 0.54 },
+    { feature_name: 'pass_completion_pct', importance: 0.0765, rank: 5, elite_mean: 0.648, league_mean: 0.612, elite_advantage: 0.036 },
+    { feature_name: 'turnover_pct', importance: 0.0654, rank: 6, elite_mean: 14.2, league_mean: 12.1, elite_advantage: 2.1 },
+    { feature_name: 'points_per_game', importance: 0.0598, rank: 7, elite_mean: 28.4, league_mean: 22.1, elite_advantage: 6.3 },
+    { feature_name: 'points_opp_per_game', importance: 0.0543, rank: 8, elite_mean: 18.2, league_mean: 22.1, elite_advantage: -3.9 },
+    { feature_name: 'pass_td_pct', importance: 0.0432, rank: 9, elite_mean: 0.052, league_mean: 0.043, elite_advantage: 0.009 },
+    { feature_name: 'interception_pct', importance: 0.0387, rank: 10, elite_mean: 0.021, league_mean: 0.028, elite_advantage: -0.007 },
+  ],
+};
