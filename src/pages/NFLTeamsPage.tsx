@@ -38,7 +38,9 @@ export default function NFLTeamsPage() {
 
   useEffect(() => {
     if (isGuest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setData(MOCK_NFL_ANALYSIS);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setSelectedTeam(MOCK_NFL_ANALYSIS.rankings[0]);
       return;
     }
@@ -202,7 +204,7 @@ export default function NFLTeamsPage() {
                   fill="#3b82f6"
                   fillOpacity={0.2}
                 />
-                <Tooltip formatter={(v: number) => v.toFixed(2)} />
+                <Tooltip formatter={(v: unknown) => Number(v).toFixed(2)} />
               </RadarChart>
             </ResponsiveContainer>
           )}
@@ -274,7 +276,7 @@ export default function NFLTeamsPage() {
             <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
             <XAxis type="number" tick={{ fontSize: 12 }} unit="%" />
             <YAxis dataKey="feature" type="category" width={160} tick={{ fontSize: 11 }} />
-            <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
+            <Tooltip formatter={(v: unknown) => `${Number(v).toFixed(1)}%`} />
             <Bar dataKey="importance" fill="#3b82f6" radius={[0, 4, 4, 0]} />
           </BarChart>
         </ResponsiveContainer>

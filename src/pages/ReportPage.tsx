@@ -24,8 +24,11 @@ export default function ReportPage() {
     if (!model) return;
 
     if (isGuest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       if (modelType === 'clusters') setClusterData({ clusters: MOCK_CLUSTERS, records: MOCK_CLUSTER_RECORDS });
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       else if (modelType === 'anomalies') setAnomalyData(MOCK_ANOMALY_DATA);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       else if (modelType === 'predictions') setPredictionData(MOCK_PREDICTION_DATA);
       setLoading(false);
       return;
