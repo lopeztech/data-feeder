@@ -5,6 +5,7 @@ import { fetchClusters, fetchAnomalies, fetchPredictions, fetchProfile, listJobs
 import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, ProfileData, ModelType } from '../lib/uploadService';
 import type { PipelineJob } from '../types';
 import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
+import { ClusterDistributionChart, ClusterMetricsRadar, AnomalyScoreDistribution, AnomalyBreakdownPie, PredictionScatterChart, ResidualDistributionChart, ProfileBarChart } from '../components/InsightCharts';
 
 // ── Shared helpers ──
 
@@ -119,6 +120,11 @@ function ClustersView({ clusters, records, expandedCluster, setExpandedCluster }
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Top Scored</p><p className="text-2xl font-bold text-brand-700">{topRecords.length}</p></div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <ClusterDistributionChart clusters={clusters} />
+        <ClusterMetricsRadar clusters={clusters} />
+      </div>
+
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-4">Clusters</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -186,6 +192,11 @@ function AnomaliesView({ data }: { data: AnomalyData }) {
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Max Score</p><p className="text-2xl font-bold text-gray-900">{summary.max_score}</p></div>
       </div>
 
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <AnomalyScoreDistribution data={data} />
+        <AnomalyBreakdownPie data={data} />
+      </div>
+
       <div>
         <h2 className="text-lg font-semibold text-gray-900 mb-2">Anomalous Records</h2>
         <p className="text-sm text-gray-500 mb-4">Records with unusual stat distributions detected by Isolation Forest.</p>
@@ -248,6 +259,11 @@ function PredictionsView({ data }: { data: PredictionData }) {
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">MAE</p><p className="text-2xl font-bold text-gray-900">{summary.mae}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">RMSE</p><p className="text-2xl font-bold text-gray-900">{summary.rmse}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Total Records</p><p className="text-2xl font-bold text-gray-900">{summary.total.toLocaleString()}</p></div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PredictionScatterChart data={data} />
+        <ResidualDistributionChart data={data} />
       </div>
 
       {/* Over-rated (model predicts higher than actual) */}
@@ -330,6 +346,8 @@ function ProfileView({ data }: { data: ProfileData }) {
 
   return (
     <div className="space-y-6">
+      <ProfileBarChart data={data} />
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-xl p-4">
           <p className="text-xs text-gray-400">Records</p>
