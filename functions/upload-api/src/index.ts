@@ -114,6 +114,12 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /nfl-team-analysis
+  if (req.method === 'GET' && req.path === '/nfl-team-analysis') {
+    handleNFLTeamAnalysis(res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -774,6 +780,27 @@ async function handleProfile(
   } catch (err) {
     console.error('Profile error:', err);
     res.status(500).json({ error: 'Failed to fetch profile data.' });
+  }
+}
+
+async function handleNFLTeamAnalysis(
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const [rankings] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.team_dominance_rankings\` ORDER BY rank`,
+    });
+    const [seasons] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.team_dominance_seasons\` ORDER BY year DESC, dominance_score DESC`,
+    });
+    const [drivers] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.team_dominance_drivers\` ORDER BY rank`,
+    });
+
+    res.status(200).json({ rankings, seasons, drivers });
+  } catch (err) {
+    console.error('NFL team analysis error:', err);
+    res.status(500).json({ error: 'Failed to fetch NFL team analysis data.' });
   }
 }
 
