@@ -249,6 +249,32 @@ jobs:
           print(f'Team player bridge submitted: {job.resource_name}')
           "
 
+      # --- NFL team analysis pipeline ---
+      - name: Compile NFL team analysis pipeline
+        working-directory: pipelines/ml
+        run: python nfl_team_analysis_pipeline.py
+
+      - name: Upload NFL team analysis pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp nfl_team_analysis_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nfl-team-analysis/pipeline.json
+
+      - name: Submit NFL team analysis pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='nfl-team-analysis-$(date +%Y%m%d-%H%M)',
+              template_path='nfl_team_analysis_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'NFL team analysis submitted: {job.resource_name}')
+          "
+
       - name: Show pipeline info
         run: |
           echo "### ML Pipelines Deployed" >> "$GITHUB_STEP_SUMMARY"
@@ -261,3 +287,4 @@ jobs:
           echo "- **Archetype Clustering**: \`team-archetype-clustering\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Optimal Profile**: \`team-optimal-profile\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Player Bridge**: \`team-player-bridge\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **NFL Team Analysis**: \`nfl-team-analysis\`" >> "$GITHUB_STEP_SUMMARY"

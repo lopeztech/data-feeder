@@ -9,6 +9,7 @@ import JobsPage from './pages/JobsPage';
 import InsightsListPage from './pages/InsightsListPage';
 import InsightsPage from './pages/InsightsPage';
 import ReportPage from './pages/ReportPage';
+import NFLTeamsPage from './pages/NFLTeamsPage';
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,7 @@ export default function App() {
                 <Route path="/insights" element={<InsightsListPage />} />
                 <Route path="/insights/:type/:model" element={<InsightsPage />} />
                 <Route path="/insights/:type/:model/report" element={<ReportPage />} />
+                <Route path="/nfl-teams" element={<NFLTeamsPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/insights" replace />} />

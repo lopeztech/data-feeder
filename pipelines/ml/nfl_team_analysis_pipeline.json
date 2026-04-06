@@ -1,0 +1,281 @@
+{
+  "components": {
+    "comp-compute-best-team": {
+      "executorLabel": "exec-compute-best-team",
+      "inputDefinitions": {
+        "parameters": {
+          "bq_dataset": {
+            "parameterType": "STRING"
+          },
+          "bq_view": {
+            "parameterType": "STRING"
+          },
+          "project_id": {
+            "parameterType": "STRING"
+          },
+          "region": {
+            "parameterType": "STRING"
+          }
+        }
+      },
+      "outputDefinitions": {
+        "artifacts": {
+          "report": {
+            "artifactType": {
+              "schemaTitle": "system.Artifact",
+              "schemaVersion": "0.0.1"
+            }
+          }
+        }
+      }
+    },
+    "comp-log-metrics": {
+      "executorLabel": "exec-log-metrics",
+      "inputDefinitions": {
+        "artifacts": {
+          "metrics_artifact": {
+            "artifactType": {
+              "schemaTitle": "system.Artifact",
+              "schemaVersion": "0.0.1"
+            }
+          }
+        },
+        "parameters": {
+          "bq_dataset": {
+            "parameterType": "STRING"
+          },
+          "pipeline_name": {
+            "parameterType": "STRING"
+          },
+          "project_id": {
+            "parameterType": "STRING"
+          },
+          "region": {
+            "parameterType": "STRING"
+          }
+        }
+      }
+    },
+    "comp-validate-team-data": {
+      "executorLabel": "exec-validate-team-data",
+      "inputDefinitions": {
+        "parameters": {
+          "bq_view": {
+            "parameterType": "STRING"
+          },
+          "max_null_pct": {
+            "defaultValue": 0.5,
+            "isOptional": true,
+            "parameterType": "NUMBER_DOUBLE"
+          },
+          "min_rows": {
+            "defaultValue": 100.0,
+            "isOptional": true,
+            "parameterType": "NUMBER_INTEGER"
+          },
+          "project_id": {
+            "parameterType": "STRING"
+          }
+        }
+      },
+      "outputDefinitions": {
+        "parameters": {
+          "Output": {
+            "parameterType": "NUMBER_INTEGER"
+          }
+        }
+      }
+    }
+  },
+  "deploymentSpec": {
+    "executors": {
+      "exec-compute-best-team": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "compute_best_team"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&  python3 -m pip install --quiet --no-warn-script-location 'pandas==2.2.3' 'scikit-learn==1.6.1' 'pyarrow==18.1.0' 'google-cloud-bigquery==3.30.0' 'db-dtypes==1.3.1' 'protobuf>=4.21.1,<5' 'urllib3>=1.26,<2' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef compute_best_team(\n    project_id: str,\n    region: str,\n    bq_view: str,\n    bq_dataset: str,\n    report: dsl.Output[dsl.Artifact],\n):\n    \"\"\"Identify the best NFL team and explain why using composite dominance scoring.\n\n    Methodology:\n    1. Compute per-season z-scores for key performance pillars:\n       - Winning: win_loss_perc\n       - Offence: points_per_game, yards_per_game, pass_completion_pct, rush_yds_per_game\n       - Defence: points_opp_per_game (inverted), turnover_pct, interception_pct (inverted)\n       - Efficiency: yds_per_play_offense, score_pct, penalty_yds_per_game (inverted)\n    2. Aggregate pillar z-scores into a weighted dominance score per team-season\n    3. Rank teams by all-time mean dominance (sustained excellence) and peak season\n    4. Use GradientBoosting feature importance to explain which stats most separate\n       elite teams from the rest\n    5. Write team_dominance_rankings and team_dominance_drivers to BigQuery\n    \"\"\"\n    import json\n    import pandas as pd\n    import numpy as np\n    from sklearn.ensemble import GradientBoostingClassifier\n    from sklearn.preprocessing import StandardScaler\n    from google.cloud import bigquery\n\n    client = bigquery.Client(project=project_id)\n    df = client.query(f\"SELECT * FROM `{bq_view}`\").to_dataframe()\n\n    print(f\"Loaded {len(df)} team-seasons ({df['year'].min()}-{df['year'].max()})\")\n\n    # --- 1. Define performance pillars and their constituent features ---\n    # Features where higher is better get weight +1; lower-is-better get -1\n    pillars = {\n        \"winning\": [(\"win_loss_perc\", 1)],\n        \"offence\": [\n            (\"points_per_game\", 1),\n            (\"yards_per_game\", 1),\n            (\"pass_completion_pct\", 1),\n            (\"rush_yds_per_game\", 1),\n        ],\n        \"defence\": [\n            (\"points_opp_per_game\", -1),  # lower is better\n            (\"turnover_pct\", 1),          # higher turnovers forced is better\n        ],\n        \"efficiency\": [\n            (\"yds_per_play_offense\", 1),\n            (\"score_pct\", 1),\n            (\"penalty_yds_per_game\", -1),  # fewer penalty yards is better\n        ],\n    }\n\n    pillar_weights = {\n        \"winning\": 0.35,\n        \"offence\": 0.25,\n        \"defence\": 0.25,\n        \"efficiency\": 0.15,\n    }\n\n    # --- 2. Compute per-season z-scores and pillar scores ---\n    all_features = []\n    for feats in pillars.values():\n        all_features.extend([f for f, _ in feats])\n\n    # Z-score within each season to account for era differences\n    pillar_scores = {p: [] for p in pillars}\n    for _, season_df in df.groupby(\"year\"):\n        idx = season_df.index\n        for pillar_name, feats in pillars.items():\n            z_sum = np.zeros(len(season_df))\n            for col, direction in feats:\n                vals = pd.to_numeric(season_df[col], errors=\"coerce\").fillna(0).values\n                std = vals.std()\n                if std > 0:\n                    z = (vals - vals.mean()) / std * direction\n                else:\n                    z = np.zeros(len(vals))\n                z_sum += z\n            # Average z-score across features in the pillar\n            pillar_scores[pillar_name].append(\n                pd.Series(z_sum / len(feats), index=idx)\n            )\n\n    for p in pillars:\n        df[f\"z_{p}\"] = pd.concat(pillar_scores[p])\n\n    # Weighted dominance score\n    df[\"dominance_score\"] = sum(\n        df[f\"z_{p}\"] * w for p, w in pillar_weights.items()\n    )\n\n    # --- 3. Rank teams by sustained excellence ---\n    team_agg = (\n        df.groupby(\"team\")\n        .agg(\n            mean_dominance=(\"dominance_score\", \"mean\"),\n            peak_dominance=(\"dominance_score\", \"max\"),\n            seasons_top_8=(\"dominance_score\", lambda x: (x >= x.quantile(0.75)).sum()),\n            total_wins=(\"wins\", \"sum\"),\n            total_losses=(\"losses\", \"sum\"),\n            avg_win_pct=(\"win_loss_perc\", \"mean\"),\n            avg_points_per_game=(\"points_per_game\", \"mean\"),\n            avg_points_opp_per_game=(\"points_opp_per_game\", \"mean\"),\n            best_season_year=(\"dominance_score\", \"idxmax\"),\n        )\n        .reset_index()\n    )\n\n    # Resolve best_season_year from index back to actual year\n    team_agg[\"best_season_year\"] = team_agg[\"best_season_year\"].map(\n        lambda idx: int(df.loc[idx, \"year\"])\n    )\n\n    # Composite rank: 60% sustained, 40% peak\n    team_agg[\"composite_score\"] = (\n        0.6 * team_agg[\"mean_dominance\"] + 0.4 * team_agg[\"peak_dominance\"]\n    )\n    team_agg = team_agg.sort_values(\"composite_score\", ascending=False).reset_index(drop=True)\n    team_agg[\"rank\"] = team_agg.index + 1\n\n    # Round floats\n    float_cols = [\n        \"mean_dominance\", \"peak_dominance\", \"composite_score\",\n        \"avg_win_pct\", \"avg_points_per_game\", \"avg_points_opp_per_game\",\n    ]\n    for col in float_cols:\n        team_agg[col] = team_agg[col].round(4)\n\n    print(f\"\\nTop 5 teams by composite dominance:\")\n    for _, row in team_agg.head(5).iterrows():\n        print(\n            f\"  {row['rank']}. {row['team']} \u2014 composite={row['composite_score']:.3f}, \"\n            f\"win%={row['avg_win_pct']:.3f}, best_year={row['best_season_year']}\"\n        )\n\n    # --- 4. Feature importance: what separates elite teams? ---\n    # Label top 25% dominance seasons as \"elite\"\n    threshold = df[\"dominance_score\"].quantile(0.75)\n    df[\"is_elite\"] = (df[\"dominance_score\"] >= threshold).astype(int)\n\n    id_cols = {\"year\", \"team\", \"is_playoff\", \"is_elite\", \"dominance_score\",\n               \"z_winning\", \"z_offence\", \"z_defence\", \"z_efficiency\"}\n    feature_cols = [\n        c for c in df.columns\n        if c not in id_cols and pd.api.types.is_numeric_dtype(df[c])\n    ]\n\n    X = df[feature_cols].fillna(0).astype(float)\n    y = df[\"is_elite\"].values\n\n    scaler = StandardScaler()\n    X_scaled = scaler.fit_transform(X)\n\n    gb = GradientBoostingClassifier(\n        n_estimators=200, max_depth=4, learning_rate=0.1, random_state=42,\n    )\n    gb.fit(X_scaled, y)\n    accuracy = round(float(gb.score(X_scaled, y)), 4)\n\n    importances = sorted(\n        zip(feature_cols, gb.feature_importances_),\n        key=lambda x: x[1],\n        reverse=True,\n    )\n\n    driver_rows = []\n    for rank_i, (feat, imp) in enumerate(importances, 1):\n        elite_mean = round(float(df.loc[df[\"is_elite\"] == 1, feat].mean()), 4)\n        league_mean = round(float(df[feat].mean()), 4)\n        driver_rows.append({\n            \"feature_name\": feat,\n            \"importance\": round(float(imp), 6),\n            \"rank\": rank_i,\n            \"elite_mean\": elite_mean,\n            \"league_mean\": league_mean,\n            \"elite_advantage\": round(elite_mean - league_mean, 4),\n        })\n\n    print(f\"\\nTop 5 dominance drivers (classifier accuracy={accuracy}):\")\n    for d in driver_rows[:5]:\n        print(f\"  {d['rank']}. {d['feature_name']} (imp={d['importance']:.4f}, \"\n              f\"elite_advantage={d['elite_advantage']:+.2f})\")\n\n    # --- 5. Write per-season dominance to BigQuery ---\n    season_rows = df[\n        [\"year\", \"team\", \"dominance_score\", \"z_winning\", \"z_offence\",\n         \"z_defence\", \"z_efficiency\", \"win_loss_perc\", \"is_elite\"]\n    ].copy()\n    season_rows = season_rows.rename(columns={\n        \"z_winning\": \"pillar_winning\",\n        \"z_offence\": \"pillar_offence\",\n        \"z_defence\": \"pillar_defence\",\n        \"z_efficiency\": \"pillar_efficiency\",\n    })\n    for col in [\"dominance_score\", \"pillar_winning\", \"pillar_offence\",\n                \"pillar_defence\", \"pillar_efficiency\", \"win_loss_perc\"]:\n        season_rows[col] = season_rows[col].round(4)\n\n    bq_client = bigquery.Client(project=project_id, location=region)\n\n    # Write season-level dominance scores\n    season_table = f\"{project_id}.{bq_dataset}.team_dominance_seasons\"\n    bq_client.load_table_from_dataframe(\n        season_rows, season_table,\n        job_config=bigquery.LoadJobConfig(\n            write_disposition=\"WRITE_TRUNCATE\",\n            schema=[\n                bigquery.SchemaField(\"year\", \"INT64\"),\n                bigquery.SchemaField(\"team\", \"STRING\"),\n                bigquery.SchemaField(\"dominance_score\", \"FLOAT64\"),\n                bigquery.SchemaField(\"pillar_winning\", \"FLOAT64\"),\n                bigquery.SchemaField(\"pillar_offence\", \"FLOAT64\"),\n                bigquery.SchemaField(\"pillar_defence\", \"FLOAT64\"),\n                bigquery.SchemaField(\"pillar_efficiency\", \"FLOAT64\"),\n                bigquery.SchemaField(\"win_loss_perc\", \"FLOAT64\"),\n                bigquery.SchemaField(\"is_elite\", \"INT64\"),\n            ],\n        ),\n    ).result()\n    print(f\"\\nWrote {len(season_rows)} rows to {season_table}\")\n\n    # Write all-time rankings\n    ranking_table = f\"{project_id}.{bq_dataset}.team_dominance_rankings\"\n    ranking_cols = [\n        \"rank\", \"team\", \"composite_score\", \"mean_dominance\", \"peak_dominance\",\n        \"seasons_top_8\", \"total_wins\", \"total_losses\", \"avg_win_pct\",\n        \"avg_points_per_game\", \"avg_points_opp_per_game\", \"best_season_year\",\n    ]\n    bq_client.load_table_from_dataframe(\n        team_agg[ranking_cols], ranking_table,\n        job_config=bigquery.LoadJobConfig(\n            write_disposition=\"WRITE_TRUNCATE\",\n            schema=[\n                bigquery.SchemaField(\"rank\", \"INT64\"),\n                bigquery.SchemaField(\"team\", \"STRING\"),\n                bigquery.SchemaField(\"composite_score\", \"FLOAT64\"),\n                bigquery.SchemaField(\"mean_dominance\", \"FLOAT64\"),\n                bigquery.SchemaField(\"peak_dominance\", \"FLOAT64\"),\n                bigquery.SchemaField(\"seasons_top_8\", \"INT64\"),\n                bigquery.SchemaField(\"total_wins\", \"INT64\"),\n                bigquery.SchemaField(\"total_losses\", \"INT64\"),\n                bigquery.SchemaField(\"avg_win_pct\", \"FLOAT64\"),\n                bigquery.SchemaField(\"avg_points_per_game\", \"FLOAT64\"),\n                bigquery.SchemaField(\"avg_points_opp_per_game\", \"FLOAT64\"),\n                bigquery.SchemaField(\"best_season_year\", \"INT64\"),\n            ],\n        ),\n    ).result()\n    print(f\"Wrote {len(team_agg)} rows to {ranking_table}\")\n\n    # Write dominance drivers\n    drivers_table = f\"{project_id}.{bq_dataset}.team_dominance_drivers\"\n    drivers_df = pd.DataFrame(driver_rows)\n    bq_client.load_table_from_dataframe(\n        drivers_df, drivers_table,\n        job_config=bigquery.LoadJobConfig(\n            write_disposition=\"WRITE_TRUNCATE\",\n            schema=[\n                bigquery.SchemaField(\"feature_name\", \"STRING\"),\n                bigquery.SchemaField(\"importance\", \"FLOAT64\"),\n                bigquery.SchemaField(\"rank\", \"INT64\"),\n                bigquery.SchemaField(\"elite_mean\", \"FLOAT64\"),\n                bigquery.SchemaField(\"league_mean\", \"FLOAT64\"),\n                bigquery.SchemaField(\"elite_advantage\", \"FLOAT64\"),\n            ],\n        ),\n    ).result()\n    print(f\"Wrote {len(drivers_df)} rows to {drivers_table}\")\n\n    # --- 6. Build report ---\n    best = team_agg.iloc[0]\n    best_team = str(best[\"team\"])\n\n    # Get best team's pillar strengths\n    best_seasons = df[df[\"team\"] == best_team]\n    pillar_means = {\n        p: round(float(best_seasons[f\"z_{p}\"].mean()), 4)\n        for p in pillars\n    }\n    strongest_pillar = max(pillar_means, key=pillar_means.get)\n\n    report_data = {\n        \"best_team\": best_team,\n        \"best_team_composite_score\": float(best[\"composite_score\"]),\n        \"best_team_avg_win_pct\": float(best[\"avg_win_pct\"]),\n        \"best_team_best_season_year\": int(best[\"best_season_year\"]),\n        \"best_team_peak_dominance\": float(best[\"peak_dominance\"]),\n        \"best_team_strongest_pillar\": strongest_pillar,\n        \"best_team_pillar_scores\": pillar_means,\n        \"total_teams_analysed\": len(team_agg),\n        \"total_seasons\": int(df[\"year\"].nunique()),\n        \"classifier_accuracy\": accuracy,\n        \"top_5_teams\": [\n            {\n                \"rank\": int(row[\"rank\"]),\n                \"team\": str(row[\"team\"]),\n                \"composite_score\": float(row[\"composite_score\"]),\n                \"avg_win_pct\": float(row[\"avg_win_pct\"]),\n            }\n            for _, row in team_agg.head(5).iterrows()\n        ],\n        \"top_5_drivers\": [\n            {\n                \"feature\": d[\"feature_name\"],\n                \"importance\": d[\"importance\"],\n                \"elite_advantage\": d[\"elite_advantage\"],\n            }\n            for d in driver_rows[:5]\n        ],\n    }\n    with open(report.path, \"w\") as f:\n        json.dump(report_data, f, indent=2)\n\n    print(f\"\\nAnalysis complete. Best team: {best_team} \"\n          f\"(composite={best['composite_score']:.3f}, strongest pillar: {strongest_pillar})\")\n\n"
+          ],
+          "image": "python:3.11-slim"
+        }
+      },
+      "exec-log-metrics": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "log_metrics"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery==3.30.0' 'db-dtypes==1.3.1' 'protobuf>=4.21.1,<5' 'urllib3>=1.26,<2' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef log_metrics(\n    metrics_artifact: dsl.Input[dsl.Artifact],\n    project_id: str,\n    region: str,\n    bq_dataset: str,\n    pipeline_name: str,\n):\n    \"\"\"Read a metrics JSON artifact and write each numeric value to pipeline_runs in BigQuery.\"\"\"\n    import json\n    import uuid\n    from datetime import datetime, timezone\n    from google.cloud import bigquery\n\n    with open(metrics_artifact.path) as f:\n        metrics = json.load(f)\n\n    run_id = str(uuid.uuid4())[:8]\n    timestamp = datetime.now(timezone.utc).isoformat()\n\n    def flatten(obj: dict, prefix: str = \"\") -> list[tuple[str, float]]:\n        \"\"\"Flatten nested dicts into (dotted_key, value) pairs.\"\"\"\n        items = []\n        for k, v in obj.items():\n            key = f\"{prefix}{k}\" if not prefix else f\"{prefix}.{k}\"\n            if isinstance(v, (int, float)):\n                items.append((key, float(v)))\n            elif isinstance(v, dict):\n                items.extend(flatten(v, key))\n        return items\n\n    flat = flatten(metrics)\n    rows = [\n        {\n            \"run_id\": run_id,\n            \"pipeline_name\": pipeline_name,\n            \"timestamp\": timestamp,\n            \"metric_name\": name,\n            \"metric_value\": value,\n        }\n        for name, value in flat\n    ]\n\n    if not rows:\n        print(\"No numeric metrics to log\")\n        return\n\n    client = bigquery.Client(project=project_id, location=region)\n    table_id = f\"{project_id}.{bq_dataset}.pipeline_runs\"\n\n    job_config = bigquery.LoadJobConfig(\n        schema=[\n            bigquery.SchemaField(\"run_id\", \"STRING\"),\n            bigquery.SchemaField(\"pipeline_name\", \"STRING\"),\n            bigquery.SchemaField(\"timestamp\", \"TIMESTAMP\"),\n            bigquery.SchemaField(\"metric_name\", \"STRING\"),\n            bigquery.SchemaField(\"metric_value\", \"FLOAT64\"),\n        ],\n        write_disposition=\"WRITE_APPEND\",\n    )\n\n    client.load_table_from_json(rows, table_id, job_config=job_config).result()\n    print(f\"Logged {len(rows)} metrics for {pipeline_name} (run {run_id})\")\n\n"
+          ],
+          "image": "python:3.11-slim"
+        }
+      },
+      "exec-validate-team-data": {
+        "container": {
+          "args": [
+            "--executor_input",
+            "{{$}}",
+            "--function_to_execute",
+            "validate_team_data"
+          ],
+          "command": [
+            "sh",
+            "-c",
+            "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location 'kfp==2.12.1' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"3.9\"'  &&  python3 -m pip install --quiet --no-warn-script-location 'google-cloud-bigquery==3.30.0' 'pandas==2.2.3' 'db-dtypes==1.3.1' 'pyarrow==18.1.0' 'protobuf>=4.21.1,<5' 'urllib3>=1.26,<2' && \"$0\" \"$@\"\n",
+            "sh",
+            "-ec",
+            "program_path=$(mktemp -d)\n\nprintf \"%s\" \"$0\" > \"$program_path/ephemeral_component.py\"\n_KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         \"$program_path/ephemeral_component.py\"                         \"$@\"\n",
+            "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import *\n\ndef validate_team_data(\n    project_id: str,\n    bq_view: str,\n    min_rows: int = 100,\n    max_null_pct: float = 0.5,\n) -> int:\n    \"\"\"Run data quality checks on the team feature view. Fails the pipeline if checks don't pass.\n\n    Checks:\n    1. Minimum row count (expect ~672 for 32 teams x 21 seasons)\n    2. No columns are entirely NULL\n    3. No column exceeds max_null_pct NULL rate\n    4. wins in range 0-17, losses in range 0-17\n    5. win_loss_pct in range 0-1\n    6. No duplicate (year, team) pairs\n    7. Numeric features have non-zero variance\n\n    Returns the row count on success.\n    \"\"\"\n    import pandas as pd\n    from google.cloud import bigquery\n\n    client = bigquery.Client(project=project_id)\n    df = client.query(f\"SELECT * FROM `{bq_view}`\").to_dataframe()\n\n    errors: list[str] = []\n\n    # 1. Minimum row count\n    if len(df) < min_rows:\n        errors.append(f\"Row count {len(df)} is below minimum threshold {min_rows}\")\n\n    # 2-3. NULL checks per column\n    for col in df.columns:\n        null_pct = df[col].isna().mean()\n        if null_pct == 1.0:\n            errors.append(f\"Column '{col}' is 100% NULL\")\n        elif null_pct > max_null_pct:\n            errors.append(f\"Column '{col}' is {null_pct:.1%} NULL (threshold: {max_null_pct:.0%})\")\n\n    # 4. wins and losses range\n    if \"wins\" in df.columns:\n        wins = pd.to_numeric(df[\"wins\"], errors=\"coerce\")\n        out_of_range = ((wins < 0) | (wins > 17)).sum()\n        if out_of_range > 0:\n            errors.append(f\"{out_of_range} wins values outside 0-17 range\")\n\n    if \"losses\" in df.columns:\n        losses = pd.to_numeric(df[\"losses\"], errors=\"coerce\")\n        out_of_range = ((losses < 0) | (losses > 17)).sum()\n        if out_of_range > 0:\n            errors.append(f\"{out_of_range} losses values outside 0-17 range\")\n\n    # 5. win_loss_pct range\n    if \"win_loss_perc\" in df.columns:\n        wlp = pd.to_numeric(df[\"win_loss_perc\"], errors=\"coerce\")\n        out_of_range = ((wlp < 0) | (wlp > 1)).sum()\n        if out_of_range > 0:\n            errors.append(f\"{out_of_range} win_loss_perc values outside 0-1 range\")\n\n    # 6. Duplicate (year, team) pairs\n    if \"year\" in df.columns and \"team\" in df.columns:\n        dupes = df.duplicated(subset=[\"year\", \"team\"]).sum()\n        if dupes > 0:\n            errors.append(f\"{dupes} duplicate (year, team) pairs\")\n\n    # 7. Zero-variance numeric columns\n    drop_cols = {\"year\", \"team\"}\n    numeric_cols = [c for c in df.columns if c not in drop_cols and pd.api.types.is_numeric_dtype(df[c])]\n    for col in numeric_cols:\n        if df[col].std() == 0:\n            errors.append(f\"Column '{col}' has zero variance (all values identical)\")\n\n    if errors:\n        msg = \"Data validation FAILED:\\n\" + \"\\n\".join(f\"  - {e}\" for e in errors)\n        print(msg)\n        raise ValueError(msg)\n\n    print(f\"Data validation PASSED: {len(df)} rows, {len(df.columns)} columns, all checks OK\")\n    return len(df)\n\n"
+          ],
+          "image": "python:3.11-slim"
+        }
+      }
+    }
+  },
+  "pipelineInfo": {
+    "description": "Identify the best NFL team using composite dominance scoring and explain why",
+    "name": "nfl-team-analysis"
+  },
+  "root": {
+    "dag": {
+      "tasks": {
+        "compute-best-team": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-compute-best-team"
+          },
+          "dependentTasks": [
+            "validate-team-data"
+          ],
+          "inputs": {
+            "parameters": {
+              "bq_dataset": {
+                "componentInputParameter": "bq_dataset"
+              },
+              "bq_view": {
+                "componentInputParameter": "bq_view"
+              },
+              "project_id": {
+                "componentInputParameter": "project_id"
+              },
+              "region": {
+                "componentInputParameter": "region"
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "compute-best-team"
+          }
+        },
+        "log-metrics": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-log-metrics"
+          },
+          "dependentTasks": [
+            "compute-best-team"
+          ],
+          "inputs": {
+            "artifacts": {
+              "metrics_artifact": {
+                "taskOutputArtifact": {
+                  "outputArtifactKey": "report",
+                  "producerTask": "compute-best-team"
+                }
+              }
+            },
+            "parameters": {
+              "bq_dataset": {
+                "componentInputParameter": "bq_dataset"
+              },
+              "pipeline_name": {
+                "runtimeValue": {
+                  "constant": "nfl-team-analysis"
+                }
+              },
+              "project_id": {
+                "componentInputParameter": "project_id"
+              },
+              "region": {
+                "componentInputParameter": "region"
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "log-metrics"
+          }
+        },
+        "validate-team-data": {
+          "cachingOptions": {
+            "enableCache": true
+          },
+          "componentRef": {
+            "name": "comp-validate-team-data"
+          },
+          "inputs": {
+            "parameters": {
+              "bq_view": {
+                "componentInputParameter": "bq_view"
+              },
+              "project_id": {
+                "componentInputParameter": "project_id"
+              }
+            }
+          },
+          "taskInfo": {
+            "name": "validate-team-data"
+          }
+        }
+      }
+    },
+    "inputDefinitions": {
+      "parameters": {
+        "bq_dataset": {
+          "defaultValue": "curated",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "bq_view": {
+          "defaultValue": "data-feeder-lcd.curated.team_features_v",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "project_id": {
+          "defaultValue": "data-feeder-lcd",
+          "isOptional": true,
+          "parameterType": "STRING"
+        },
+        "region": {
+          "defaultValue": "australia-southeast1",
+          "isOptional": true,
+          "parameterType": "STRING"
+        }
+      }
+    }
+  },
+  "schemaVersion": "2.1.0",
+  "sdkVersion": "kfp-2.12.1"
+}

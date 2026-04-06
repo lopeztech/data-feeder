@@ -94,3 +94,16 @@ def test_compile_team_player_bridge_pipeline(tmp_path):
 
     data = json.loads(out.read_text())
     assert "root" in data, "Compiled JSON missing 'root' key"
+
+
+def test_compile_nfl_team_analysis_pipeline(tmp_path):
+    from nfl_team_analysis_pipeline import nfl_team_analysis_pipeline
+
+    out = tmp_path / "nfl_team_analysis.json"
+    Compiler().compile(
+        pipeline_func=nfl_team_analysis_pipeline,
+        package_path=str(out),
+    )
+
+    data = json.loads(out.read_text())
+    assert "root" in data, "Compiled JSON missing 'root' key"
