@@ -3,6 +3,7 @@ import { Storage } from '@google-cloud/storage';
 import { Firestore } from '@google-cloud/firestore';
 import { PubSub } from '@google-cloud/pubsub';
 import { parse } from 'csv-parse/sync';
+import crypto from 'crypto';
 
 import { validate } from './validators.js';
 import { maskPii } from './pii.js';
@@ -20,6 +21,9 @@ const SILVER_BUCKET = process.env.GCS_SILVER_BUCKET || 'data-feeder-lcd-staging'
 const REJECTED_BUCKET = process.env.GCS_REJECTED_BUCKET || 'data-feeder-lcd-rejected';
 const VALIDATION_COMPLETE_TOPIC = process.env.VALIDATION_COMPLETE_TOPIC || 'validation-complete';
 const PIPELINE_FAILED_TOPIC = process.env.PIPELINE_FAILED_TOPIC || 'pipeline-failed';
+const FILE_UPLOADED_TOPIC = process.env.FILE_UPLOADED_TOPIC || 'file-uploaded';
+const ZIP_EXTS = new Set(['csv', 'json', 'ndjson', 'parquet', 'avro']);
+const ZIP_CT: Record<string, string> = { csv: 'text/csv', json: 'application/json', ndjson: 'application/x-ndjson', parquet: 'application/octet-stream', avro: 'application/octet-stream' };
 
 cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
   // Decode Pub/Sub message
@@ -71,6 +75,12 @@ cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
 
     // Download file from Bronze
     const [buffer] = await storage.bucket(RAW_BUCKET).file(objectName).download();
+
+    // Handle ZIP archives
+    if (getExtension(filename) === 'zip' || contentType === 'application/zip') {
+      await handleZipArchive(buffer, objectName, jobId, jobRef, notification);
+      return;
+    }
 
     // Validate file structure
     const result = validate(buffer, contentType, filename);
@@ -275,4 +285,64 @@ async function writeRejectionManifest(
     .save(Buffer.from(manifest), { contentType: 'application/x-ndjson' });
 
   console.log(`Job ${jobId}: wrote ${rejectedRows.length} rejected records to ${REJECTED_BUCKET}/${manifestPath}`);
+}
+
+async function handleZipArchive(
+  buffer: Buffer, objectName: string, parentJobId: string,
+  parentJobRef: FirebaseFirestore.DocumentReference, notification: GcsNotification,
+): Promise<void> {
+  const AdmZip = (await import('adm-zip')).default;
+  const zip = new AdmZip(buffer);
+  const entries = zip.getEntries().filter(e => {
+    if (e.isDirectory) return false;
+    const n = e.entryName.split('/').pop() ?? '';
+    return !n.startsWith('.') && !n.startsWith('__') && ZIP_EXTS.has(getExtension(n));
+  });
+
+  if (entries.length === 0) {
+    await parentJobRef.update({ status: 'REJECTED', error: 'ZIP contains no supported files', updated_at: new Date().toISOString() });
+    console.log(`Job ${parentJobId}: ZIP rejected — no supported files`);
+    return;
+  }
+
+  const childJobIds: string[] = [];
+  const basePath = objectName.replace(/[^/]+$/, '');
+
+  for (const entry of entries) {
+    const data = entry.getData();
+    const name = entry.entryName.split('/').pop() ?? entry.entryName;
+    const ct = ZIP_CT[getExtension(name)] || 'application/octet-stream';
+    const childId = crypto.randomUUID();
+    const ds = name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
+    const path = `${basePath}${childId}/${name}`;
+    const upBy = notification.metadata?.uploadedBy ?? '';
+
+    await storage.bucket(RAW_BUCKET).file(path).save(data, {
+      contentType: ct, metadata: { dataset: ds, jobId: childId, uploadedBy: upBy, parentJobId },
+    });
+
+    const now = new Date().toISOString();
+    await firestore.collection('jobs').doc(childId).set({
+      job_id: childId, dataset: ds, filename: name, file_size_bytes: data.length,
+      content_type: ct, status: 'UPLOADING', uploaded_by: upBy,
+      created_at: now, updated_at: now, bronze_path: `gs://${RAW_BUCKET}/${path}`,
+      silver_path: null, bq_table: ds, description: `Extracted from ${notification.name}`,
+      parent_job_id: parentJobId, stats: { total_records: 0, valid: 0, rejected: 0, loaded: 0 }, error: null,
+    });
+
+    await pubsub.topic(FILE_UPLOADED_TOPIC).publishMessage({
+      json: { kind: 'storage#object', name: path, bucket: RAW_BUCKET, contentType: ct,
+        size: String(data.length), metadata: { dataset: ds, jobId: childId, uploadedBy: upBy } },
+    });
+
+    childJobIds.push(childId);
+    console.log(`Job ${parentJobId}: extracted ${name} → child ${childId}`);
+  }
+
+  await parentJobRef.update({
+    status: 'LOADED', child_jobs: childJobIds,
+    stats: { total_records: entries.length, valid: entries.length, rejected: 0, loaded: 0 },
+    updated_at: new Date().toISOString(),
+  });
+  console.log(`Job ${parentJobId}: ZIP → ${childJobIds.length} child jobs`);
 }

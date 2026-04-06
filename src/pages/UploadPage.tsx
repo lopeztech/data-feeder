@@ -13,6 +13,7 @@ const ACCEPTED_FORMATS: Record<string, string[]> = {
   'application/json': ['.json'],
   'application/x-ndjson': ['.ndjson'],
   'application/octet-stream': ['.parquet', '.avro'],
+  'application/zip': ['.zip'],
 };
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -21,6 +22,7 @@ const FORMAT_LABELS: Record<string, string> = {
   ndjson: 'NDJSON',
   parquet: 'Parquet',
   avro: 'Avro',
+  zip: 'ZIP Archive',
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -106,6 +108,34 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+async function listZipEntries(file: File): Promise<string[]> {
+  const buf = await file.arrayBuffer();
+  const view = new DataView(buf);
+  const entries: string[] = [];
+
+  // Find End of Central Directory record (search backwards for signature 0x06054b50)
+  let eocdOffset = -1;
+  for (let i = buf.byteLength - 22; i >= 0; i--) {
+    if (view.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break; }
+  }
+  if (eocdOffset < 0) return entries;
+
+  const cdOffset = view.getUint32(eocdOffset + 16, true);
+  const cdEntries = view.getUint16(eocdOffset + 10, true);
+
+  let offset = cdOffset;
+  for (let i = 0; i < cdEntries && offset < buf.byteLength; i++) {
+    if (view.getUint32(offset, true) !== 0x02014b50) break;
+    const nameLen = view.getUint16(offset + 28, true);
+    const extraLen = view.getUint16(offset + 30, true);
+    const commentLen = view.getUint16(offset + 32, true);
+    const name = new TextDecoder().decode(new Uint8Array(buf, offset + 46, nameLen));
+    if (!name.endsWith('/')) entries.push(name); // skip directories
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
 async function inferSchema(file: File): Promise<SchemaPreview | null> {
   const ext = getExtension(file.name);
   if (!['csv', 'json', 'ndjson'].includes(ext)) return null;
@@ -174,20 +204,32 @@ export default function UploadPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadId, setUploadId] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [zipEntries, setZipEntries] = useState<string[]>([]);
 
   // Run schema inference when a new file is selected
   const handleFileChange = useCallback((newFile: File | null) => {
     setFile(newFile);
+    setZipEntries([]);
     if (!newFile) { setPreview(null); setPreviewLoading(false); return; }
     // Auto-populate dataset and BQ table from filename (strip extension, lowercase, underscores)
     const baseName = newFile.name.replace(/\.[^.]+$/, '').toLowerCase().replace(/[\s-]+/g, '_');
     if (!datasetTouched) setDataset(baseName);
     if (!bqTableTouched) setBqTable(baseName);
-    setPreviewLoading(true);
-    inferSchema(newFile).then(result => {
-      setPreview(result);
-      setPreviewLoading(false);
-    });
+
+    if (getExtension(newFile.name) === 'zip') {
+      setPreviewLoading(true);
+      listZipEntries(newFile).then(entries => {
+        setZipEntries(entries);
+        setPreview(null);
+        setPreviewLoading(false);
+      });
+    } else {
+      setPreviewLoading(true);
+      inferSchema(newFile).then(result => {
+        setPreview(result);
+        setPreviewLoading(false);
+      });
+    }
   }, [datasetTouched, bqTableTouched]);
 
   const onDrop = useCallback((accepted: File[]) => {
@@ -332,7 +374,7 @@ export default function UploadPage() {
               <p className="text-gray-600 font-medium">
                 {isDragActive ? 'Drop the file here' : 'Drag & drop a file, or click to browse'}
               </p>
-              <p className="text-xs text-gray-400">CSV, JSON, NDJSON, Parquet, Avro</p>
+              <p className="text-xs text-gray-400">CSV, JSON, NDJSON, Parquet, Avro, ZIP</p>
             </div>
           )}
         </div>
@@ -343,7 +385,7 @@ export default function UploadPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
             <p className="text-sm text-red-700">
-              File rejected: {fileRejections[0].errors[0].message}. Supported formats: CSV, JSON, NDJSON, Parquet, Avro.
+              File rejected: {fileRejections[0].errors[0].message}. Supported formats: CSV, JSON, NDJSON, Parquet, Avro, ZIP.
             </p>
           </div>
         )}
@@ -418,7 +460,28 @@ export default function UploadPage() {
                 </table>
               </div>
             )}
-            {!previewLoading && !preview && (
+            {!previewLoading && zipEntries.length > 0 && (
+              <div className="px-4 py-3">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  ZIP Contents ({zipEntries.length} {zipEntries.length === 1 ? 'file' : 'files'})
+                </p>
+                <p className="text-xs text-gray-400 mb-2">Each file will be processed as a separate pipeline job.</p>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {zipEntries.map(entry => {
+                    const entryExt = entry.split('.').pop()?.toLowerCase() ?? '';
+                    const supported = ['csv', 'json', 'ndjson'].includes(entryExt);
+                    return (
+                      <div key={entry} className="flex items-center gap-2 text-xs">
+                        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${supported ? 'bg-green-400' : 'bg-gray-300'}`} />
+                        <span className={supported ? 'text-gray-700' : 'text-gray-400'}>{entry}</span>
+                        {!supported && <span className="text-gray-300 text-[10px]">(skipped)</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {!previewLoading && !preview && zipEntries.length === 0 && (
               <p className="text-xs text-gray-400 px-4 py-3">Could not parse file for preview.</p>
             )}
           </div>
