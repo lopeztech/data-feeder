@@ -9,6 +9,9 @@ import type { ClusterSummary, AnomalyData, PredictionData, ProfileData } from '.
 
 const COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f97316', '#ec4899', '#06b6d4', '#f59e0b', '#ef4444'];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pieLabel = (props: any) => `${props.name} (${((props.percent ?? 0) * 100).toFixed(0)}%)`;
+
 // ── Cluster Charts ──
 
 export function ClusterDistributionChart({ clusters }: { clusters: ClusterSummary[] }) {
@@ -22,7 +25,7 @@ export function ClusterDistributionChart({ clusters }: { clusters: ClusterSummar
       <h3 className="text-sm font-semibold text-gray-700 mb-3">Cluster Size Distribution</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
-          <Pie data={data} dataKey="records" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({ name, percent }: { name: string; percent: number }) => `${name} (${(percent * 100).toFixed(0)}%)`} labelLine={false}>
+          <Pie data={data} dataKey="records" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={pieLabel} labelLine={false}>
             {data.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
           </Pie>
           <Tooltip />
@@ -111,7 +114,7 @@ export function AnomalyBreakdownPie({ data }: { data: AnomalyData }) {
       <h3 className="text-sm font-semibold text-gray-700 mb-3">Normal vs Anomalous</h3>
       <ResponsiveContainer width="100%" height={250}>
         <PieChart>
-          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={({ name, percent }) => `${name} (${(percent * 100).toFixed(1)}%)`} labelLine={false}>
+          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={90} label={pieLabel} labelLine={false}>
             <Cell fill="#94a3b8" />
             <Cell fill="#f59e0b" />
           </Pie>
