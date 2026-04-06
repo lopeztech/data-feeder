@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { fetchClusters, fetchAnomalies, fetchPredictions, fetchProfile } from '../lib/uploadService';
 import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, ProfileData, ModelType } from '../lib/uploadService';
-import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
+import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
 import { getNarrative } from '../lib/narratives';
 
 export default function ReportPage() {
