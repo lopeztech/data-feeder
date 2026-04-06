@@ -38,7 +38,9 @@ export default function NFLTeamsPage() {
 
   useEffect(() => {
     if (isGuest) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setData(MOCK_NFL_ANALYSIS);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- sync mock data for guest mode
       setSelectedTeam(MOCK_NFL_ANALYSIS.rankings[0]);
       return;
     }
