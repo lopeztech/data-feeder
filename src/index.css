@@ -13,3 +13,22 @@
     @apply bg-gray-50 text-gray-900 min-h-screen;
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+    min-height: auto !important;
+  }
+
+  nav, aside {
+    display: none !important;
+  }
+
+  .break-before-page {
+    break-before: page;
+  }
+
+  table {
+    font-size: 9px !important;
+  }
+}

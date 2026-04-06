@@ -8,6 +8,7 @@ import UploadPage from './pages/UploadPage';
 import JobsPage from './pages/JobsPage';
 import InsightsListPage from './pages/InsightsListPage';
 import InsightsPage from './pages/InsightsPage';
+import ReportPage from './pages/ReportPage';
 
 const queryClient = new QueryClient();
 
@@ -24,6 +25,7 @@ export default function App() {
                 <Route path="/jobs" element={<JobsPage />} />
                 <Route path="/insights" element={<InsightsListPage />} />
                 <Route path="/insights/:type/:model" element={<InsightsPage />} />
+                <Route path="/insights/:type/:model/report" element={<ReportPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/insights" replace />} />
