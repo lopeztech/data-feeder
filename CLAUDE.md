@@ -16,7 +16,7 @@ npm run preview    # Preview production build locally
 Before pushing any branch, **always run all three checks** and confirm they pass:
 
 ```bash
-npm run build                                        # tsc -b && vite build — catches TS errors that break Docker/Cloud Run deploy
+npm run build                                        # tsc -b && vite build — catches TS errors that break deploy
 npm run lint                                         # ESLint — 0 errors required (warnings OK)
 npm test                                             # Root vitest — must exit 0
 cd functions/validator && npm ci && npm test && cd -  # Validator tests (separate node_modules)
@@ -26,17 +26,17 @@ cd functions/validator && npm ci && npm test && cd -  # Validator tests (separat
 
 - **`vite.config.ts` is compiled by `tsc`** via `tsconfig.node.json`. Adding Node.js imports (e.g. `child_process`, `fs`) requires `@types/node` in devDependencies and `"types": ["node"]` in `tsconfig.node.json`. Adding vitest `test:` config requires `/// <reference types="vitest/config" />`.
 - **Root vitest excludes `functions/**` and `pipelines/**`** — those directories have their own `node_modules` and test runners. Never remove these excludes from `vite.config.ts`.
-- **`npm run build` is the authoritative check**, not just `npm run lint` or `npm test`. The Docker build (`Dockerfile`) runs `npm run build`, so if `tsc` fails, Cloud Run deploy fails.
-- **Deploy workflows trigger on main push** — changes to `vite.config.ts`, `Dockerfile`, `package.json`, or `src/**` trigger `deploy.yml` (Cloud Run). Ensure the build passes locally before merging.
-- **Build args in Dockerfile** must match `deploy.yml` — if you add a new `VITE_*` env var, add corresponding `ARG`/`ENV` in `Dockerfile` and `--build-arg` in `.github/workflows/deploy.yml`.
+- **`npm run build` is the authoritative check**, not just `npm run lint` or `npm test`. The CI workflow runs `npm run build`, so if `tsc` fails, Firebase Hosting deploy fails.
+- **Deploy workflows trigger on main push** — changes to `vite.config.ts`, `firebase.json`, `package.json`, or `src/**` trigger `deploy.yml` (Firebase Hosting). Ensure the build passes locally before merging.
+- **`VITE_*` env vars** are set as environment variables in `deploy.yml` during `npm run build`. If you add a new `VITE_*` env var, add it to the "Build SPA" step in `.github/workflows/deploy.yml`.
 
 ## Environment
 
-Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully. `VITE_UPLOAD_API_URL` is optional locally (defaults to `/api/uploads`); in production it's set to the Cloud Function URL at Docker build time.
+Copy `.env.example` to `.env.local` and fill in `VITE_GOOGLE_CLIENT_ID`. Without it the app still runs — Google sign-in will fail but Guest mode works fully. `VITE_UPLOAD_API_URL` is optional locally (defaults to `/api/uploads`); in production it's set to the Cloud Function URL at build time via CI environment variables.
 
 ## Architecture
 
-React 19 + Vite 8 + TypeScript SPA. Tailwind CSS v4 for styling. React Router v7 for routing. Google Identity Services (GIS) for auth. React Query for server state.
+React 19 + Vite 8 + TypeScript SPA hosted on Firebase Hosting (global CDN). Tailwind CSS v4 for styling. React Router v7 for routing. Google Identity Services (GIS) for auth. React Query for server state.
 
 ### Auth model
 Two entry points on the login page:
@@ -89,7 +89,7 @@ The loader stage uses an Apache Beam Dataflow Flex Template (`pipelines/dataflow
 - Auto-detects high-cardinality columns from Parquet schema for BigQuery clustering (up to 4 fields)
 - BigQuery tables partitioned by `_PARTITIONDATE` with dataset-specific clustering
 - Cloud Monitoring metrics: `rows_processed`, `bytes_written`, `error_count`
-- Worker autoscaling: minimum 1, maximum 20 workers
+- Worker autoscaling: minimum 1, maximum 5 workers (n1-standard-2, 50GB disk)
 - Updates Firestore → `LOADED` with row counts
 - On failure: updates Firestore → `FAILED`, publishes `pipeline-failed`
 
@@ -107,7 +107,7 @@ K-Means clustering for player role identification (`pipelines/ml/`):
 - Runs as `sa-ml` service account via Vertex AI Pipelines
 
 ### Data flow
-Upload page → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket (date-partitioned paths: `dataset/year=YYYY/month=MM/day=DD/uuid/file`) → GCS notifies Pub/Sub → Validator Cloud Function validates, masks PII, type-casts, deduplicates, converts to Parquet/Snappy (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader launcher Cloud Function triggers Dataflow Flex Template → Beam pipeline loads to staging (WRITE_TRUNCATE) then appends to curated with clustering (Silver→Gold, autoscaling 1–20 workers) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains K-Means, writes cluster assignments back to BigQuery.
+Upload page (Firebase Hosting) → calls `POST /init` on Cloud Function → receives GCS signed URL → browser uploads directly to GCS Bronze bucket (date-partitioned paths: `dataset/year=YYYY/month=MM/day=DD/uuid/file`) → GCS notifies Pub/Sub → Validator Cloud Function validates, masks PII, type-casts, deduplicates, converts to Parquet/Snappy (Bronze→Silver/Rejected) → publishes `validation-complete` → Loader Cloud Function loads to staging (WRITE_TRUNCATE) then appends to curated with clustering (Silver→Gold) → updates Firestore to LOADED. ML Pipeline reads from Gold, trains models, writes results back to BigQuery.
 
 ## Terraform (Infrastructure as Code)
 
@@ -118,17 +118,18 @@ The `platform-infra` repo provisions all GCP resources for the lopezcloud.dev or
 ## CI/CD
 
 Five deploy workflows:
-- `deploy.yml` — builds Docker image (nginx + SPA), pushes to Artifact Registry, deploys to Cloud Run. Resolves the Cloud Function URL and bakes it into the build. Includes post-deploy smoke test.
+- `deploy.yml` — builds SPA with Vite, deploys to Firebase Hosting. Resolves the Cloud Function URL and bakes it into the build as `VITE_UPLOAD_API_URL`. Includes post-deploy smoke test.
 - `deploy-function.yml` — builds and deploys the upload-api Cloud Function (HTTP trigger).
 - `deploy-validator.yml` — builds and deploys the validator Cloud Function (Pub/Sub trigger on `file-uploaded` topic).
 - `deploy-loader.yml` — builds the Dataflow Flex Template Docker image, creates the template spec, and deploys the launcher Cloud Function (Pub/Sub trigger on `validation-complete` topic).
-- `deploy-ml-pipeline.yml` — creates BQ feature view, compiles KFP pipeline, submits to Vertex AI.
+- `deploy-ml-pipeline.yml` — creates BQ feature views, compiles KFP pipelines (submitted only on manual dispatch, not on push).
 
-Both use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
+All use Workload Identity Federation (no static keys) and deploy to `australia-southeast1` in project `data-feeder-lcd`.
 
 ### Key files
 | File | Purpose |
 |---|---|
+| `firebase.json` | Firebase Hosting config: SPA rewrites, cache headers |
 | `src/context/AuthContext.tsx` | Auth state (GIS), Google + Guest sign-in/out, sessionStorage persistence |
 | `src/lib/uploadService.ts` | initUpload, listJobs, simpleUploadToGCS, resumableUploadToGCS |
 | `src/types/google-accounts.d.ts` | Type declarations for the Google Identity Services client |
@@ -145,7 +146,7 @@ Both use Workload Identity Federation (no static keys) and deploy to `australia-
 | `functions/validator/src/parquet.ts` | Parquet/Snappy writer for Silver output |
 | `functions/loader/src/index.ts` | Cloud Function: thin launcher that triggers Dataflow Flex Template |
 | `pipelines/dataflow/pipeline.py` | Apache Beam pipeline: Silver Parquet → staging → curated BigQuery |
-| `pipelines/dataflow/Dockerfile` | Flex Template container image |
+| `pipelines/dataflow/Dockerfile` | Dataflow Flex Template container image |
 | `pipelines/dataflow/metadata.json` | Flex Template parameter metadata |
 | `pipelines/ml/pipeline.py` | KFP pipeline definition for K-Means clustering |
 | `pipelines/ml/components/` | Pipeline components: preprocess, train, evaluate, deploy |

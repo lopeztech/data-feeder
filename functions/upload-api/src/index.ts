@@ -26,6 +26,8 @@ const RESUMABLE_THRESHOLD = 5 * 1024 * 1024; // 5 MB
 // Allowed origins for CORS
 const ALLOWED_ORIGINS = [
   'https://datafeeder.lopezcloud.dev',
+  'https://data-feeder-lcd.web.app',
+  'https://data-feeder-lcd.firebaseapp.com',
   'http://localhost:5173',
 ];
 

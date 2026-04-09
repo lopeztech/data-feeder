@@ -1,4 +1,4 @@
-name: Deploy to Cloud Run
+name: Deploy to Firebase Hosting
 
 on:
   push:
@@ -10,15 +10,12 @@ on:
       - 'package.json'
       - 'package-lock.json'
       - 'vite.config.ts'
-      - 'Dockerfile'
-      - 'nginx.conf'
+      - 'firebase.json'
   workflow_dispatch:
 
 env:
   PROJECT_ID: data-feeder-lcd
   REGION: australia-southeast1
-  AR_REPO: data-feeder-images
-  SERVICE_NAME: data-feeder-api
 
 permissions:
   contents: read
@@ -42,8 +39,14 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Authenticate Docker to Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Get Upload API function URL
         id: fn-url
@@ -55,35 +58,19 @@ jobs:
             --format='value(serviceConfig.uri)' 2>/dev/null || echo "")
           echo "url=${url}" >> "$GITHUB_OUTPUT"
 
-      - name: Build Docker image
-        run: |
-          docker build \
-            --build-arg VITE_GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
-            --build-arg VITE_UPLOAD_API_URL="${{ steps.fn-url.outputs.url }}" \
-            --build-arg VITE_COMMIT_SHA="${{ github.sha }}" \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }} \
-            -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest \
-            .
+      - name: Build SPA
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          VITE_UPLOAD_API_URL: ${{ steps.fn-url.outputs.url }}
+          VITE_COMMIT_SHA: ${{ github.sha }}
+        run: npm run build
 
-      - name: Push Docker image
-        run: |
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:latest
-
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
-        with:
-          service: ${{ env.SERVICE_NAME }}
-          image: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.AR_REPO }}/${{ env.SERVICE_NAME }}:${{ github.sha }}
-          region: ${{ env.REGION }}
-          project_id: ${{ env.PROJECT_ID }}
+      - name: Deploy to Firebase Hosting
+        run: npx firebase-tools deploy --only hosting --project ${{ env.PROJECT_ID }}
 
       - name: Smoke test deployment
         run: |
-          url=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region ${{ env.REGION }} \
-            --project ${{ env.PROJECT_ID }} \
-            --format 'value(status.url)')
+          url="https://datafeeder.lopezcloud.dev"
           fn_url="${{ steps.fn-url.outputs.url }}"
           passed=0
           failed=0
@@ -95,27 +82,24 @@ jobs:
           echo "URL: ${url}"
           echo ""
 
-          # 1. SPA serves correctly (not Cloud Run placeholder)
+          # 1. SPA serves correctly
           body=$(curl -s --max-time 30 "${url}")
-          if echo "$body" | grep -q "Data Feeder"; then pass "SPA serves Data Feeder"; else fail "SPA serves Data Feeder — got placeholder"; fi
+          if echo "$body" | grep -q "Data Feeder"; then pass "SPA serves Data Feeder"; else fail "SPA serves Data Feeder — got unexpected content"; fi
 
-          # 2. Health endpoint
-          if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}/health")" = "200" ]; then pass "Health endpoint returns 200"; else fail "Health endpoint"; fi
-
-          # 3. Static assets load
+          # 2. Static assets load
           css_url=$(echo "$body" | grep -oP 'href="/assets/[^"]+\.css"' | head -1 | grep -oP '/assets/[^"]+')
           if [ -n "$css_url" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}${css_url}")" = "200" ]; then pass "CSS bundle loads"; else fail "CSS bundle"; fi
 
           js_url=$(echo "$body" | grep -oP 'src="/assets/[^"]+\.js"' | head -1 | grep -oP '/assets/[^"]+')
           if [ -n "$js_url" ] && [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}${js_url}")" = "200" ]; then pass "JS bundle loads"; else fail "JS bundle"; fi
 
-          # 4. SPA routing fallback
+          # 3. SPA routing fallback
           if curl -s --max-time 10 "${url}/some/random/path" | grep -q "Data Feeder"; then pass "SPA fallback routing"; else fail "SPA fallback routing"; fi
 
-          # 5. Favicon
+          # 4. Favicon
           if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "${url}/favicon.svg")" = "200" ]; then pass "Favicon loads"; else fail "Favicon"; fi
 
-          # 6. Cache headers
+          # 5. Cache headers
           if [ -n "$css_url" ] && curl -sI --max-time 10 "${url}${css_url}" | grep -qi "immutable"; then pass "Static assets immutable cache"; else fail "Static assets immutable cache"; fi
           if curl -sI --max-time 10 "${url}/" | grep -qi "no-cache"; then pass "index.html no-cache header"; else fail "index.html no-cache header"; fi
 
@@ -137,7 +121,7 @@ jobs:
           echo "=== Results: ${passed} passed, ${failed} failed ==="
 
           echo "### Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
-          echo "Service URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
+          echo "Hosting URL: [${url}](${url})" >> "$GITHUB_STEP_SUMMARY"
           echo "Results: **${passed} passed**, **${failed} failed**" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$failed" -gt 0 ]; then exit 1; fi
