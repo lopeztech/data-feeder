@@ -168,6 +168,91 @@ export function getNarrative(modelName: string, modelType: string, outputTable?:
     fineTuning: null,
   };
 
+  // NRL models
+  if (outputTable?.includes('nrl_team_rankings') || (key.includes('nrl') && key.includes('dominance'))) return {
+    title: 'NRL Team Dominance Rankings',
+    overview: 'A composite dominance score ranks every NRL team across 35 years of fixtures (1990\u20132025), weighted by win rate (25%), average margin (20%), away win rate (15%), close-game clutch (15%), blowout rate (10%), defensive strength (10%), and longevity (5%). K-Means clustering identifies team archetypes.',
+    whatItShows: 'The rankings separate dynasties from contenders and competitive teams. An era-adjusted modern dominance score weights recent decades higher, so teams dominating now rank differently from all-time greats. Archetypes reveal whether a team wins through grinding consistency or explosive attacking.',
+    actions: [
+      'Compare your team\'s archetype to the dynasty cluster to identify which metrics to prioritize',
+      'Use modern dominance score alongside all-time ranking to distinguish current form from historical reputation',
+      'Check the per-season breakdown to identify when your team entered or exited its peak era',
+    ],
+    fineTuning: 'The composite weights (25/20/15/15/10/10/5) are tuned for NRL fixtures data. If close-game win rate seems over-weighted, reduce to 10% and increase margin weight. The era-adjustment uses a 10-year half-life \u2014 increase to 15 years for a more historically balanced view.',
+  };
+
+  if (outputTable?.includes('nrl_match_predictions') || (key.includes('nrl') && key.includes('match') && modelType === 'predictions')) return {
+    title: 'NRL Match Outcome Predictor',
+    overview: 'A GradientBoosting model predicts match margins from rolling 5-game form, season-to-date performance, head-to-head history, and home advantage. Residual analysis reveals which teams consistently beat or underperform model expectations.',
+    whatItShows: 'Feature importances show what actually drives NRL match outcomes \u2014 is it recent form, home ground advantage, or head-to-head psychological edges? Teams with positive overperformance scores have an X factor the model can\'t explain: culture, coaching quality, or mental toughness.',
+    actions: [
+      'Check feature importances to prioritise preparation: if h2h_home_win_rate ranks high, game plans should be opponent-specific',
+      'Teams with consistent overperformance are genuinely elite \u2014 their wins aren\'t just from easy draws',
+      'Underperforming teams may be coasting on favourable schedules \u2014 expect regression in tougher fixtures',
+    ],
+    fineTuning: 'The model uses a 5-game rolling window. Increase to 8 for more stable form estimates, or decrease to 3 for more reactive predictions. Head-to-head features may overfit for rare matchups \u2014 consider filtering to pairs with 10+ meetings.',
+  };
+
+  if (outputTable?.includes('nrl_match_feature_importances')) return {
+    title: 'What Predicts NRL Match Results?',
+    overview: 'Feature importance rankings from the match prediction model show which factors most strongly predict the margin between home and away teams.',
+    whatItShows: 'Higher importance = stronger predictive power. Recent form (last 5 games) typically dominates, but the balance between home advantage, season form, and head-to-head history reveals what coaches should focus on.',
+    actions: [
+      'If home_season_home_win_rate ranks high, home ground advantage is a genuine factor \u2014 schedule accordingly',
+      'If form_differential dominates, recent momentum matters most \u2014 focus on building winning streaks',
+      'Use these importances to weight pre-match analysis: spend time on the factors that actually predict outcomes',
+    ],
+    fineTuning: null,
+  };
+
+  if (outputTable?.includes('nrl_team_overperformance')) return {
+    title: 'NRL Team Overperformance',
+    overview: 'Teams ranked by how much they consistently beat or fall short of model predictions. Positive overperformance means the team wins by more (or loses by less) than their stats suggest they should.',
+    whatItShows: 'Overperforming teams have intangibles the model can\'t capture \u2014 coaching, culture, mental toughness, or clutch play. Underperformers may have flattering stats but lack the ability to convert advantages into results.',
+    actions: [
+      'Top overperformers are the teams to study for coaching methodology and team culture',
+      'Underperforming teams should audit whether their training translates to match-day execution',
+      'Use this alongside the dominance rankings to separate genuine quality from statistical illusion',
+    ],
+    fineTuning: null,
+  };
+
+  if (outputTable?.includes('nrl_team_profiles')) return {
+    title: 'NRL Team Playing Styles',
+    overview: 'K-Means clustering on tactical features identifies distinct playing styles across all NRL teams. Each team gets a SWOT assessment: strengths (metrics above 75th percentile) and weaknesses (below 25th percentile).',
+    whatItShows: 'Playing style clusters reveal whether a team is a consistent grinder, high-scoring attacker, home specialist, clutch performer, or late-season surger. The SWOT breakdown shows exactly where a team excels and where it\'s vulnerable.',
+    actions: [
+      'Compare your team\'s style to the most successful cluster \u2014 should you adapt or lean into your identity?',
+      'Target weaknesses for off-season improvement: low bounce-back rate suggests mental resilience training',
+      'High home dependency means away game preparation needs specific attention',
+    ],
+    fineTuning: 'Style labels are auto-assigned based on the most distinguishing feature per cluster. If labels seem off, check the underlying tactical metrics for each cluster to understand the true separation.',
+  };
+
+  if (outputTable?.includes('nrl_rivalry_matrix')) return {
+    title: 'NRL Head-to-Head Rivalry Matrix',
+    overview: 'Complete head-to-head records between all NRL team pairs across 35 years, including home/away splits and dominance flags for statistically significant edges (>60% win rate with 10+ meetings).',
+    whatItShows: 'Rivalry records reveal psychological edges that persist across eras. A team with a dominant head-to-head record against a specific opponent has a structural advantage worth exploiting in preparation.',
+    actions: [
+      'Flag opponents where your win rate is below 40% \u2014 these rivalries need specific tactical game plans',
+      'Compare home vs away win rates per rival to identify venue-specific advantages',
+      'Use long-term trends to assess whether a rivalry dynamic is shifting in your favour',
+    ],
+    fineTuning: null,
+  };
+
+  if (outputTable?.includes('nrl_team_trends')) return {
+    title: 'NRL Team Trajectory Analysis',
+    overview: 'Rolling 5-year windows track each team\'s performance trajectory over time. Teams are classified as improving, declining, or stable based on the slope of their win rate across windows.',
+    whatItShows: 'Trajectory analysis separates teams on the rise from those declining \u2014 independent of their current ranking. A low-ranked team with an improving trajectory is a different proposition to a high-ranked team in decline.',
+    actions: [
+      'Improving teams are building something \u2014 study what changed (coaching, roster, culture) during the inflection',
+      'Declining teams should compare recent windows to their peak to identify what regressed',
+      'Stable teams have found their level \u2014 breakthrough requires a structural change, not incremental improvement',
+    ],
+    fineTuning: 'The 5-year window smooths single-season noise but may lag rapid changes. Try 3-year windows for more responsive trend detection.',
+  };
+
   if (modelType === 'predictions' && modelName === 'player') return {
     title: 'Player Rating Prediction',
     overview: 'A GradientBoosting model predicts each player\'s match rating from their performance statistics. The residual (predicted - actual) reveals players whose stats suggest they should be rated higher or lower than they are.',

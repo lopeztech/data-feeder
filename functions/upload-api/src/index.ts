@@ -121,6 +121,12 @@ http('uploadApi', (req, res) => {
     return;
   }
 
+  // Route: GET /nrl-team-analysis
+  if (req.method === 'GET' && req.path === '/nrl-team-analysis') {
+    handleNRLTeamAnalysis(res);
+    return;
+  }
+
   // Route: POST /:uploadId/retrigger
   const retriggerMatch = req.path.match(/^\/([a-f0-9-]+)\/retrigger$/);
   if (req.method === 'POST' && retriggerMatch) {
@@ -809,6 +815,33 @@ async function handleNFLTeamAnalysis(
   } catch (err) {
     console.error('NFL team analysis error:', err);
     res.status(500).json({ error: 'Failed to fetch NFL team analysis data.' });
+  }
+}
+
+async function handleNRLTeamAnalysis(
+  res: { status: (code: number) => { json: (data: unknown) => void } },
+) {
+  try {
+    const [rankings] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.nrl_team_rankings\` ORDER BY rank`,
+    });
+    const [seasons] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.nrl_team_seasons\` ORDER BY year DESC, win_rate DESC`,
+    });
+    const [profiles] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.nrl_team_profiles\` ORDER BY team`,
+    });
+    const [rivalries] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.nrl_rivalry_matrix\` ORDER BY total_matches DESC`,
+    });
+    const [trends] = await bigquery.query({
+      query: `SELECT * FROM \`${BQ_CURATED_DATASET}.nrl_team_trends\` ORDER BY team, window_start`,
+    });
+
+    res.status(200).json({ rankings, seasons, profiles, rivalries, trends });
+  } catch (err) {
+    console.error('NRL team analysis error:', err);
+    res.status(500).json({ error: 'Failed to fetch NRL team analysis data.' });
   }
 }
 

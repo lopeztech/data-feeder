@@ -10,6 +10,7 @@ import InsightsListPage from './pages/InsightsListPage';
 import InsightsPage from './pages/InsightsPage';
 import ReportPage from './pages/ReportPage';
 import NFLTeamsPage from './pages/NFLTeamsPage';
+import NRLTeamsPage from './pages/NRLTeamsPage';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ export default function App() {
                 <Route path="/insights/:type/:model" element={<InsightsPage />} />
                 <Route path="/insights/:type/:model/report" element={<ReportPage />} />
                 <Route path="/nfl-teams" element={<NFLTeamsPage />} />
+                <Route path="/nrl-teams" element={<NRLTeamsPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/insights" replace />} />
