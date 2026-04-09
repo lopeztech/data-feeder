@@ -5,12 +5,17 @@ import { Firestore } from '@google-cloud/firestore';
 import { PubSub } from '@google-cloud/pubsub';
 import type { ValidationCompleteMessage, MessagePublishedData } from './types.js';
 
-const bigquery = new BigQuery();
-const gcs = new Storage();
-const firestore = new Firestore({
-  databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
-});
-const pubsub = new PubSub();
+// Lazy-init: clients are created on first invocation, not at module load (reduces cold start)
+let bigquery: BigQuery;
+let gcs: Storage;
+let firestore: Firestore;
+let pubsub: PubSub;
+function ensureClients() {
+  bigquery ??= new BigQuery();
+  gcs ??= new Storage();
+  firestore ??= new Firestore({ databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder' });
+  pubsub ??= new PubSub();
+}
 
 const BQ_DATASET = process.env.BQ_CURATED_DATASET || 'curated';
 const BQ_STAGING_DATASET = process.env.BQ_STAGING_DATASET || 'staging';
@@ -23,6 +28,7 @@ const FORMAT_MAP: Record<string, string> = {
 };
 
 cloudEvent('loader', async (event: CloudEvent<MessagePublishedData>) => {
+  ensureClients();
   const messageData = event.data?.message?.data;
   if (!messageData) {
     console.error('No message data in event');

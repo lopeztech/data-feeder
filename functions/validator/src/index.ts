@@ -10,11 +10,15 @@ import { maskPii } from './pii.js';
 import { transformRows } from './schema.js';
 import type { GcsNotification, MessagePublishedData, RejectedRecord } from './types.js';
 
-const storage = new Storage();
-const firestore = new Firestore({
-  databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
-});
-const pubsub = new PubSub();
+// Lazy-init: clients are created on first invocation, not at module load (reduces cold start)
+let storage: Storage;
+let firestore: Firestore;
+let pubsub: PubSub;
+function ensureClients() {
+  storage ??= new Storage();
+  firestore ??= new Firestore({ databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder' });
+  pubsub ??= new PubSub();
+}
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';
 const SILVER_BUCKET = process.env.GCS_SILVER_BUCKET || 'data-feeder-lcd-staging';
@@ -26,6 +30,7 @@ const ZIP_EXTS = new Set(['csv', 'json', 'ndjson', 'parquet', 'avro']);
 const ZIP_CT: Record<string, string> = { csv: 'text/csv', json: 'application/json', ndjson: 'application/x-ndjson', parquet: 'application/octet-stream', avro: 'application/octet-stream' };
 
 cloudEvent('validator', async (event: CloudEvent<MessagePublishedData>) => {
+  ensureClients();
   // Decode Pub/Sub message
   const messageData = event.data?.message?.data;
   if (!messageData) {

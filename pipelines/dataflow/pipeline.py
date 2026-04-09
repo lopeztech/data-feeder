@@ -14,7 +14,10 @@ from typing import Optional
 import apache_beam as beam
 from apache_beam.io.gcp.bigquery import WriteToBigQuery
 from apache_beam.metrics import Metrics
-from apache_beam.options.pipeline_options import PipelineOptions
+from apache_beam.options.pipeline_options import (
+    PipelineOptions,
+    WorkerOptions,
+)
 from google.cloud import bigquery, firestore, pubsub_v1, storage
 import pyarrow.parquet as pq
 
@@ -173,6 +176,15 @@ def run():
     """Main entry point for the Dataflow Flex Template."""
     opts = LoaderOptions()
     loader = opts.view_as(LoaderOptions)
+
+    # Cost optimisation: right-size workers (defaults if not overridden at launch)
+    worker_opts = opts.view_as(WorkerOptions)
+    if not worker_opts.machine_type:
+        worker_opts.machine_type = 'n1-standard-2'
+    if not worker_opts.disk_size_gb:
+        worker_opts.disk_size_gb = 50
+    if not worker_opts.max_num_workers:
+        worker_opts.max_num_workers = 5
 
     silver_gcs_path = loader.silver_gcs_path
     target_bq_table = loader.target_bq_table

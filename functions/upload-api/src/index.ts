@@ -6,12 +6,17 @@ import { BigQuery } from '@google-cloud/bigquery';
 import { parse } from 'csv-parse/sync';
 import crypto from 'crypto';
 
-const storage = new Storage();
-const firestore = new Firestore({
-  databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder',
-});
-const pubsub = new PubSub();
-const bigquery = new BigQuery();
+// Lazy-init: clients are created on first request, not at module load (reduces cold start)
+let storage: Storage;
+let firestore: Firestore;
+let pubsub: PubSub;
+let bigquery: BigQuery;
+function ensureClients() {
+  storage ??= new Storage();
+  firestore ??= new Firestore({ databaseId: process.env.FIRESTORE_DATABASE || 'data-feeder' });
+  pubsub ??= new PubSub();
+  bigquery ??= new BigQuery();
+}
 
 const RAW_BUCKET = process.env.GCS_RAW_BUCKET || 'data-feeder-lcd-raw';
 const BQ_CURATED_DATASET = process.env.BQ_CURATED_DATASET || 'curated';
@@ -49,6 +54,7 @@ function extractUser(authHeader: string | undefined): { uid: string; email: stri
 }
 
 http('uploadApi', (req, res) => {
+  ensureClients();
   // CORS
   const origin = req.headers.origin ?? '';
   if (ALLOWED_ORIGINS.includes(origin)) {
@@ -202,7 +208,7 @@ async function handleInit(
       const [url] = await file.getSignedUrl({
         version: 'v4',
         action: 'write',
-        expires: Date.now() + 15 * 60 * 1000,
+        expires: Date.now() + 60 * 60 * 1000, // 1 hour
         contentType,
       });
       signedUrl = url;
@@ -343,7 +349,15 @@ interface DiscoveredModel {
  * Discover ML output tables (_clusters, _anomalies, _rating_predictions)
  * and their related source tables via shared ID column.
  */
+const MODEL_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+let modelCache: { models: DiscoveredModel[]; timestamp: number } | null = null;
+
 async function discoverModels(): Promise<DiscoveredModel[]> {
+  // In-memory cache with 15-minute TTL to avoid repeated INFORMATION_SCHEMA scans
+  if (modelCache && Date.now() - modelCache.timestamp < MODEL_CACHE_TTL_MS) {
+    return modelCache.models;
+  }
+
   const [allTables] = await bigquery.query({
     query: `
       SELECT table_name
@@ -396,6 +410,8 @@ async function discoverModels(): Promise<DiscoveredModel[]> {
 
     models.push({ model: modelName, type: matched.type, outputTable: tbl, idCol, sourceTables: sources });
   }
+
+  modelCache = { models, timestamp: Date.now() };
   return models;
 }
 

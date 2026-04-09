@@ -55,7 +55,7 @@ jobs:
             --trigger-topic=file-uploaded \
             --service-account=sa-validator@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-env-vars="GCS_RAW_BUCKET=${{ env.PROJECT_ID }}-raw,GCS_SILVER_BUCKET=${{ env.PROJECT_ID }}-staging,GCS_REJECTED_BUCKET=${{ env.PROJECT_ID }}-rejected,FIRESTORE_DATABASE=data-feeder,VALIDATION_COMPLETE_TOPIC=validation-complete,PIPELINE_FAILED_TOPIC=pipeline-failed" \
-            --memory=1Gi \
+            --memory=256Mi \
             --max-instances=10 \
             --timeout=300s \
             --source=.

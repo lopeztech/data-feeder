@@ -101,7 +101,7 @@ jobs:
         run: gsutil cp pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-role-clustering/pipeline.json
 
       - name: Submit clustering pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -127,7 +127,7 @@ jobs:
         run: gsutil cp anomaly_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-anomaly-detection/pipeline.json
 
       - name: Submit anomaly pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -153,7 +153,7 @@ jobs:
         run: gsutil cp rating_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/player-rating-prediction/pipeline.json
 
       - name: Submit rating pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -179,7 +179,7 @@ jobs:
         run: gsutil cp team_win_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-win-predictor/pipeline.json
 
       - name: Submit team win predictor pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -205,7 +205,7 @@ jobs:
         run: gsutil cp team_archetype_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-archetype-clustering/pipeline.json
 
       - name: Submit team archetype pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -231,7 +231,7 @@ jobs:
         run: gsutil cp team_optimal_profile_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-optimal-profile/pipeline.json
 
       - name: Submit team optimal profile pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -257,7 +257,7 @@ jobs:
         run: gsutil cp team_player_bridge_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/team-player-bridge/pipeline.json
 
       - name: Submit team player bridge pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -283,7 +283,7 @@ jobs:
         run: gsutil cp nfl_team_analysis_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nfl-team-analysis/pipeline.json
 
       - name: Submit NFL team analysis pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -309,7 +309,7 @@ jobs:
         run: gsutil cp f1_driver_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-driver-predictor/pipeline.json
 
       - name: Submit F1 driver predictor pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -335,7 +335,7 @@ jobs:
         run: gsutil cp f1_constructor_dominance_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-constructor-dominance/pipeline.json
 
       - name: Submit F1 constructor dominance pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -361,7 +361,7 @@ jobs:
         run: gsutil cp f1_pitstop_strategy_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/f1-pitstop-strategy/pipeline.json
 
       - name: Submit F1 pitstop strategy pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -387,7 +387,7 @@ jobs:
         run: gsutil cp nrl_team_dominance_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-team-dominance/pipeline.json
 
       - name: Submit NRL team dominance pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -413,7 +413,7 @@ jobs:
         run: gsutil cp nrl_match_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-match-predictor/pipeline.json
 
       - name: Submit NRL match predictor pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
@@ -439,7 +439,7 @@ jobs:
         run: gsutil cp nrl_coaching_insights_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-coaching-insights/pipeline.json
 
       - name: Submit NRL coaching insights pipeline
-        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        if: github.event_name == 'workflow_dispatch' && inputs.run_pipeline
         working-directory: pipelines/ml
         run: |
           python -c "
