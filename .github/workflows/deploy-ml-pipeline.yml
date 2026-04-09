@@ -71,6 +71,18 @@ jobs:
             --project_id=${{ env.PROJECT_ID }} \
             --use_legacy_sql=false \
             < pipelines/ml/sql/f1_pitstop_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/nrl_team_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/nrl_match_features_view.sql
+          bq query \
+            --project_id=${{ env.PROJECT_ID }} \
+            --use_legacy_sql=false \
+            < pipelines/ml/sql/nrl_coaching_features_view.sql
 
       - name: Create pipeline_runs table
         run: |
@@ -365,6 +377,84 @@ jobs:
           print(f'F1 pitstop strategy submitted: {job.resource_name}')
           "
 
+      # --- NRL Team Dominance pipeline ---
+      - name: Compile NRL team dominance pipeline
+        working-directory: pipelines/ml
+        run: python nrl_team_dominance_pipeline.py
+
+      - name: Upload NRL team dominance pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp nrl_team_dominance_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-team-dominance/pipeline.json
+
+      - name: Submit NRL team dominance pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='nrl-team-dominance-$(date +%Y%m%d-%H%M)',
+              template_path='nrl_team_dominance_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'NRL team dominance submitted: {job.resource_name}')
+          "
+
+      # --- NRL Match Predictor pipeline ---
+      - name: Compile NRL match predictor pipeline
+        working-directory: pipelines/ml
+        run: python nrl_match_predictor_pipeline.py
+
+      - name: Upload NRL match predictor pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp nrl_match_predictor_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-match-predictor/pipeline.json
+
+      - name: Submit NRL match predictor pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='nrl-match-predictor-$(date +%Y%m%d-%H%M)',
+              template_path='nrl_match_predictor_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'NRL match predictor submitted: {job.resource_name}')
+          "
+
+      # --- NRL Coaching Insights pipeline ---
+      - name: Compile NRL coaching insights pipeline
+        working-directory: pipelines/ml
+        run: python nrl_coaching_insights_pipeline.py
+
+      - name: Upload NRL coaching insights pipeline to GCS
+        working-directory: pipelines/ml
+        run: gsutil cp nrl_coaching_insights_pipeline.json ${{ env.GCS_BUCKET }}/pipelines/nrl-coaching-insights/pipeline.json
+
+      - name: Submit NRL coaching insights pipeline
+        if: (github.event_name == 'workflow_dispatch' && inputs.run_pipeline) || github.event_name == 'push'
+        working-directory: pipelines/ml
+        run: |
+          python -c "
+          from google.cloud import aiplatform
+          aiplatform.init(project='${{ env.PROJECT_ID }}', location='${{ env.REGION }}')
+          job = aiplatform.PipelineJob(
+              display_name='nrl-coaching-insights-$(date +%Y%m%d-%H%M)',
+              template_path='nrl_coaching_insights_pipeline.json',
+              pipeline_root='${{ env.GCS_BUCKET }}/pipeline-runs',
+              parameter_values={'project_id': '${{ env.PROJECT_ID }}', 'region': '${{ env.REGION }}'},
+          )
+          job.submit(service_account='${{ env.SERVICE_ACCOUNT }}')
+          print(f'NRL coaching insights submitted: {job.resource_name}')
+          "
+
       - name: Show pipeline info
         run: |
           echo "### ML Pipelines Deployed" >> "$GITHUB_STEP_SUMMARY"
@@ -378,6 +468,10 @@ jobs:
           echo "- **Optimal Profile**: \`team-optimal-profile\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Player Bridge**: \`team-player-bridge\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **NFL Team Analysis**: \`nfl-team-analysis\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "#### NRL Pipelines" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Team Dominance**: \`nrl-team-dominance\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Match Predictor**: \`nrl-match-predictor\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- **Coaching Insights**: \`nrl-coaching-insights\`" >> "$GITHUB_STEP_SUMMARY"
           echo "#### F1 Pipelines" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Driver Predictor**: \`f1-driver-predictor\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- **Constructor Dominance**: \`f1-constructor-dominance\`" >> "$GITHUB_STEP_SUMMARY"
