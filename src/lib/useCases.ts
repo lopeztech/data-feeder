@@ -1,4 +1,4 @@
-export type UseCase = 'all' | 'f1' | 'nfl' | 'european-football' | 'other';
+export type UseCase = 'all' | 'f1' | 'nfl' | 'nrl' | 'european-football' | 'other';
 
 export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; icon: string; patterns: string[] }> = {
   f1: {
@@ -10,6 +10,11 @@ export const USE_CASE_META: Record<Exclude<UseCase, 'all'>, { label: string; ico
     label: 'NFL',
     icon: '🏈',
     patterns: ['nfl_', 'team_win', 'team_archetype', 'team_optimal', 'team_feature', 'positional_value', 'team_dominance'],
+  },
+  nrl: {
+    label: 'NRL',
+    icon: '🏉',
+    patterns: ['nrl_'],
   },
   'european-football': {
     label: 'European Football',

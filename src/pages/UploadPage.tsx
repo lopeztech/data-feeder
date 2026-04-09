@@ -517,7 +517,7 @@ export default function UploadPage() {
             </div>
             {category && (
               <p className="text-xs text-gray-400 mt-1">
-                {category === 'f1' ? 'Formula 1' : category === 'nfl' ? 'NFL' : 'European Football'} datasets will be grouped together in Pipeline Jobs and Insights.
+                {USE_CASE_META[category]?.label} datasets will be grouped together in Pipeline Jobs and Insights.
               </p>
             )}
           </div>
