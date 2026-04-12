@@ -1,14 +1,5 @@
 {
   "projects": {
     "default": "data-feeder-lcd"
-  },
-  "targets": {
-    "data-feeder-lcd": {
-      "hosting": {
-        "data-feeder-lcd": [
-          "data-feeder-lcd"
-        ]
-      }
-    }
   }
 }
