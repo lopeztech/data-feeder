@@ -6,6 +6,7 @@ import type { ClusterSummary, ClusterRecord, AnomalyData, PredictionData, Profil
 import type { PipelineJob } from '../types';
 import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
 import { ClusterDistributionChart, ClusterMetricsRadar, AnomalyScoreDistribution, AnomalyBreakdownPie, PredictionScatterChart, ResidualDistributionChart, ProfileBarChart } from '../components/InsightCharts';
+import F1TrackViz from '../components/fields/F1TrackViz';
 
 // ── Shared helpers ──
 
@@ -104,16 +105,38 @@ function StatBar({ value, max, color }: { value: number; max: number; color: str
 
 // ── Cluster View ──
 
-function ClustersView({ clusters, records, expandedCluster, setExpandedCluster }: {
-  clusters: ClusterSummary[]; records: ClusterRecord[]; expandedCluster: number | null; setExpandedCluster: (v: number | null) => void;
+function ClustersView({ clusters, records, expandedCluster, setExpandedCluster, modelName = '' }: {
+  clusters: ClusterSummary[]; records: ClusterRecord[]; expandedCluster: number | null; setExpandedCluster: (v: number | null) => void; modelName?: string;
 }) {
   const totalRecords = clusters.reduce((s, c) => s + c.record_count, 0);
   const displayMetrics = pickDisplayMetrics(clusters);
   const maxes = Object.fromEntries(displayMetrics.map(k => [k, Math.max(...clusters.map(c => Math.abs(c.metrics[k] ?? 0)), 1)]));
   const topRecords = [...records].sort((a, b) => b.score - a.score).slice(0, 10);
 
+  // F1 constructor track visualization: extract constructor data from cluster records
+  const isF1Constructor = modelName.includes('f1_constructor');
+  const f1Constructors = isF1Constructor
+    ? [...records]
+        .filter(r => r.fields.rank != null)
+        .sort((a, b) => Number(a.fields.rank) - Number(b.fields.rank))
+        .map(r => ({
+          rank: Number(r.fields.rank),
+          constructor: String(r.fields.constructor ?? r.record_id),
+          composite_score: Number(r.fields.composite_score ?? r.score),
+          archetype_label: String(r.fields.archetype_label ?? 'midfield'),
+          mean_win_rate: Number(r.fields.mean_win_rate ?? 0),
+          total_wins: Number(r.fields.total_wins ?? 0),
+          seasons_active: Number(r.fields.seasons_active ?? 0),
+        }))
+    : [];
+
   return (
     <div className="space-y-8">
+      {/* F1 Track Visualization */}
+      {isF1Constructor && f1Constructors.length > 0 && (
+        <F1TrackViz constructors={f1Constructors} />
+      )}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Clusters</p><p className="text-2xl font-bold text-gray-900">{clusters.length}</p></div>
         <div className="bg-white border border-gray-200 rounded-xl p-4"><p className="text-xs text-gray-400">Total Records</p><p className="text-2xl font-bold text-gray-900">{totalRecords.toLocaleString()}</p></div>
@@ -503,7 +526,7 @@ export default function InsightsPage() {
       {/* Model-specific view (charts + data) */}
       {!loading && !error && hasData && (
         <>
-          {clusterData && <ClustersView clusters={clusterData.clusters} records={clusterData.records} expandedCluster={expandedCluster} setExpandedCluster={setExpandedCluster} />}
+          {clusterData && <ClustersView clusters={clusterData.clusters} records={clusterData.records} expandedCluster={expandedCluster} setExpandedCluster={setExpandedCluster} modelName={model ?? ''} />}
           {anomalyData && <AnomaliesView data={anomalyData} />}
           {predictionData && <PredictionsView data={predictionData} />}
           {profileData && <ProfileView data={profileData} />}

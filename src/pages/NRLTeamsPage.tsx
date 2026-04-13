@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchNRLTeamAnalysis } from '../lib/nrlService';
 import { MOCK_NRL_ANALYSIS } from '../data/mockNRLTeams';
 import type { NRLTeamAnalysisData, NRLTeamRanking, NRLRivalry } from '../types/nrlTeams';
+import NRLFieldViz from '../components/fields/NRLFieldViz';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -142,6 +143,15 @@ export default function NRLTeamsPage() {
             <p className="text-lg font-bold">{best.peak_season}</p>
           </div>
         </div>
+      </div>
+
+      {/* Field Visualization */}
+      <div className="mb-8">
+        <NRLFieldViz
+          rankings={data.rankings}
+          selectedTeam={selectedTeam?.team}
+          onSelectTeam={t => setSelectedTeam(t)}
+        />
       </div>
 
       {/* Tab Navigation */}

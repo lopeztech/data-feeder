@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { fetchNFLTeamAnalysis } from '../lib/nflService';
 import { MOCK_NFL_ANALYSIS } from '../data/mockNFLTeams';
 import type { NFLTeamAnalysisData, NFLTeamRanking } from '../types/nflTeams';
+import NFLFieldViz from '../components/fields/NFLFieldViz';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
@@ -140,6 +141,15 @@ export default function NFLTeamsPage() {
             <p className="text-lg font-bold">{best.best_season_year}</p>
           </div>
         </div>
+      </div>
+
+      {/* Field Visualization */}
+      <div className="mb-8">
+        <NFLFieldViz
+          rankings={data.rankings}
+          selectedTeam={selectedTeam?.team}
+          onSelectTeam={t => setSelectedTeam(t)}
+        />
       </div>
 
       {/* Rankings Table + Team Detail */}
