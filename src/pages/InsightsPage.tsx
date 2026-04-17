@@ -7,6 +7,7 @@ import type { PipelineJob } from '../types';
 import { MOCK_CLUSTERS, MOCK_CLUSTER_RECORDS, MOCK_LINEAGE_JOBS, MOCK_MODELS, MOCK_ANOMALY_DATA, MOCK_PREDICTION_DATA } from '../data/mockClusters';
 import { ClusterDistributionChart, ClusterMetricsRadar, AnomalyScoreDistribution, AnomalyBreakdownPie, PredictionScatterChart, ResidualDistributionChart, ProfileBarChart } from '../components/InsightCharts';
 import F1TrackViz from '../components/fields/F1TrackViz';
+import NRLFieldViz from '../components/fields/NRLFieldViz';
 
 // ── Shared helpers ──
 
@@ -130,11 +131,44 @@ function ClustersView({ clusters, records, expandedCluster, setExpandedCluster, 
         }))
     : [];
 
+  // NRL team field visualization: extract team data from cluster records
+  const isNRLTeam = modelName.includes('nrl_team') || (modelName.includes('nrl') && modelName.includes('dominance'));
+  const nrlTeams = isNRLTeam
+    ? [...records]
+        .filter(r => r.fields.rank != null)
+        .sort((a, b) => Number(a.fields.rank) - Number(b.fields.rank))
+        .map(r => ({
+          rank: Number(r.fields.rank),
+          team: String(r.fields.team ?? r.record_id),
+          composite_score: Number(r.fields.composite_score ?? r.score),
+          modern_dominance: Number(r.fields.modern_dominance ?? 0),
+          mean_win_rate: Number(r.fields.mean_win_rate ?? 0),
+          mean_avg_margin: Number(r.fields.mean_avg_margin ?? 0),
+          mean_home_win_rate: Number(r.fields.mean_home_win_rate ?? 0),
+          mean_away_win_rate: Number(r.fields.mean_away_win_rate ?? 0),
+          mean_close_game_win_rate: Number(r.fields.mean_close_game_win_rate ?? 0),
+          mean_blowout_rate: Number(r.fields.mean_blowout_rate ?? 0),
+          mean_avg_points_for: Number(r.fields.mean_avg_points_for ?? 0),
+          mean_avg_points_against: Number(r.fields.mean_avg_points_against ?? 0),
+          total_wins: Number(r.fields.total_wins ?? 0),
+          total_games: Number(r.fields.total_games ?? 0),
+          seasons_active: Number(r.fields.seasons_active ?? 0),
+          peak_season: Number(r.fields.peak_season ?? 0),
+          archetype_id: Number(r.fields.archetype_id ?? 0),
+          archetype_label: String(r.fields.archetype_label ?? 'competitive'),
+        }))
+    : [];
+
   return (
     <div className="space-y-8">
       {/* F1 Track Visualization */}
       {isF1Constructor && f1Constructors.length > 0 && (
         <F1TrackViz constructors={f1Constructors} />
+      )}
+
+      {/* NRL Field Visualization */}
+      {isNRLTeam && nrlTeams.length > 0 && (
+        <NRLFieldViz rankings={nrlTeams} />
       )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
