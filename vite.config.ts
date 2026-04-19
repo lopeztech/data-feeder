@@ -9,7 +9,13 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(
       process.env.VITE_COMMIT_SHA
-        ? new Date().toLocaleString('en-AU', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Australia/Sydney' })
+        ? (() => {
+            const now = new Date();
+            const tz = { timeZone: 'Australia/Sydney' } as const;
+            const date = now.toLocaleDateString('en-GB', { ...tz, day: '2-digit', month: '2-digit', year: 'numeric' });
+            const time = now.toLocaleTimeString('en-GB', { ...tz, hour: '2-digit', minute: '2-digit', hour12: false });
+            return `${time} ${date}`;
+          })()
         : 'dev'
     ),
   },

@@ -142,7 +142,7 @@ export default function Layout() {
           Sign out
         </button>
         <p className="mt-2 px-3 text-[10px] text-gray-300 select-all" title="Build version">
-          v{__APP_VERSION__}
+          {__APP_VERSION__}
         </p>
       </div>
     </>
