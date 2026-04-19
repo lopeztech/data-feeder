@@ -27,6 +27,8 @@ def nrl_team_dominance_pipeline(
         project_id=project_id,
         bq_view=bq_view,
         min_rows=50,
+        max_wins=30,
+        max_losses=30,
     )
 
     dominance_task = nrl_team_dominance(

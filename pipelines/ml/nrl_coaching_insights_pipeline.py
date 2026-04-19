@@ -27,6 +27,8 @@ def nrl_coaching_insights_pipeline(
         project_id=project_id,
         bq_view=bq_view,
         min_rows=50,
+        max_wins=30,
+        max_losses=30,
     )
 
     coaching_task = nrl_coaching_analyzer(

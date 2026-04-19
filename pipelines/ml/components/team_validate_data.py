@@ -15,6 +15,8 @@ def validate_team_data(
     bq_view: str,
     min_rows: int = 100,
     max_null_pct: float = 0.5,
+    max_wins: int = 17,
+    max_losses: int = 17,
 ) -> int:
     """Run data quality checks on the team feature view. Fails the pipeline if checks don't pass.
 
@@ -22,7 +24,8 @@ def validate_team_data(
     1. Minimum row count (expect ~672 for 32 teams x 21 seasons)
     2. No columns are entirely NULL
     3. No column exceeds max_null_pct NULL rate
-    4. wins in range 0-17, losses in range 0-17
+    4. wins in range 0..max_wins, losses in range 0..max_losses (defaults sized for NFL;
+       NRL/F1 callers should pass larger bounds)
     5. win_loss_pct in range 0-1
     6. No duplicate (year, team) pairs
     7. Numeric features have non-zero variance
@@ -52,15 +55,15 @@ def validate_team_data(
     # 4. wins and losses range
     if "wins" in df.columns:
         wins = pd.to_numeric(df["wins"], errors="coerce")
-        out_of_range = ((wins < 0) | (wins > 17)).sum()
+        out_of_range = ((wins < 0) | (wins > max_wins)).sum()
         if out_of_range > 0:
-            errors.append(f"{out_of_range} wins values outside 0-17 range")
+            errors.append(f"{out_of_range} wins values outside 0-{max_wins} range")
 
     if "losses" in df.columns:
         losses = pd.to_numeric(df["losses"], errors="coerce")
-        out_of_range = ((losses < 0) | (losses > 17)).sum()
+        out_of_range = ((losses < 0) | (losses > max_losses)).sum()
         if out_of_range > 0:
-            errors.append(f"{out_of_range} losses values outside 0-17 range")
+            errors.append(f"{out_of_range} losses values outside 0-{max_losses} range")
 
     # 5. win_loss_pct range
     if "win_loss_perc" in df.columns:
