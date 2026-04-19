@@ -3,17 +3,17 @@
 CREATE OR REPLACE VIEW `data-feeder-lcd.curated.nrl_match_features_v` AS
 WITH matches AS (
   SELECT
-    PARSE_DATE('%Y-%m-%d', date) AS match_date,
-    EXTRACT(YEAR FROM PARSE_DATE('%Y-%m-%d', date)) AS year,
-    round,
-    home_team,
-    away_team,
-    home_score,
-    away_score,
-    home_score - away_score AS margin,
-    venue
+    DATE(KickOffTime) AS match_date,
+    Season AS year,
+    Round AS round,
+    HomeTeam AS home_team,
+    AwayTeam AS away_team,
+    HomeScore AS home_score,
+    AwayScore AS away_score,
+    HomeScore - AwayScore AS margin,
+    Venue AS venue
   FROM `data-feeder-lcd.curated.nrl_fixtures_1990_2025`
-  WHERE home_score IS NOT NULL AND away_score IS NOT NULL
+  WHERE HomeScore IS NOT NULL AND AwayScore IS NOT NULL
 ),
 
 -- Unpivot to per-team rows for rolling calcs

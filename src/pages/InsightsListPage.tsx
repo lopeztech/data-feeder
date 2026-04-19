@@ -76,12 +76,14 @@ export default function InsightsListPage() {
 
       {!loading && !error && cards.length > 0 && (() => {
         const tagged = cards.map(c => ({ ...c, useCase: detectUseCase([c.model, c.outputTable, ...c.sourceTables]) }));
-        const useCases = [...new Set(tagged.map(c => c.useCase))];
+        const detected = [...new Set(tagged.map(c => c.useCase))];
+        // Always surface NRL: it has a dedicated page (/nrl-teams) that does not depend on the generic /models discovery.
+        const useCases: Exclude<UseCase, 'all'>[] = detected.includes('nrl') ? detected : [...detected, 'nrl'];
         const filtered = useCaseFilter === 'all' ? tagged : tagged.filter(c => c.useCase === useCaseFilter);
         const groups = useCases
           .filter(uc => useCaseFilter === 'all' || uc === useCaseFilter)
           .map(uc => ({ uc, cards: filtered.filter(c => c.useCase === uc) }))
-          .filter(g => g.cards.length > 0);
+          .filter(g => g.cards.length > 0 || g.uc === 'nrl');
 
         return (
           <>

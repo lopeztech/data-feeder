@@ -3,16 +3,16 @@
 CREATE OR REPLACE VIEW `data-feeder-lcd.curated.nrl_coaching_features_v` AS
 WITH matches AS (
   SELECT
-    PARSE_DATE('%Y-%m-%d', date) AS match_date,
-    EXTRACT(YEAR FROM PARSE_DATE('%Y-%m-%d', date)) AS year,
-    round,
-    home_team,
-    away_team,
-    home_score,
-    away_score,
-    venue
+    DATE(KickOffTime) AS match_date,
+    Season AS year,
+    Round AS round,
+    HomeTeam AS home_team,
+    AwayTeam AS away_team,
+    HomeScore AS home_score,
+    AwayScore AS away_score,
+    Venue AS venue
   FROM `data-feeder-lcd.curated.nrl_fixtures_1990_2025`
-  WHERE home_score IS NOT NULL AND away_score IS NOT NULL
+  WHERE HomeScore IS NOT NULL AND AwayScore IS NOT NULL
 ),
 
 -- Unpivot to per-team rows with lag for momentum
@@ -44,8 +44,7 @@ with_prev AS (
   SELECT *,
     LAG(win) OVER (PARTITION BY team ORDER BY match_date) AS prev_win,
     LAG(loss) OVER (PARTITION BY team ORDER BY match_date) AS prev_loss,
-    -- Approximate round number (parse numeric part if possible)
-    SAFE_CAST(REGEXP_EXTRACT(round, r'(\d+)') AS INT64) AS round_num
+    round AS round_num
   FROM team_matches
 ),
 

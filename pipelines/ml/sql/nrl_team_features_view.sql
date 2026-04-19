@@ -4,36 +4,36 @@ CREATE OR REPLACE VIEW `data-feeder-lcd.curated.nrl_team_features_v` AS
 WITH matches AS (
   -- Unpivot: one row per team per match
   SELECT
-    EXTRACT(YEAR FROM PARSE_DATE('%Y-%m-%d', date)) AS year,
-    round,
-    home_team AS team,
-    home_score AS points_for,
-    away_score AS points_against,
-    home_score - away_score AS margin,
-    CASE WHEN home_score > away_score THEN 1 ELSE 0 END AS win,
-    CASE WHEN home_score = away_score THEN 1 ELSE 0 END AS draw,
-    CASE WHEN home_score < away_score THEN 1 ELSE 0 END AS loss,
+    Season AS year,
+    Round AS round,
+    HomeTeam AS team,
+    HomeScore AS points_for,
+    AwayScore AS points_against,
+    HomeScore - AwayScore AS margin,
+    CASE WHEN HomeScore > AwayScore THEN 1 ELSE 0 END AS win,
+    CASE WHEN HomeScore = AwayScore THEN 1 ELSE 0 END AS draw,
+    CASE WHEN HomeScore < AwayScore THEN 1 ELSE 0 END AS loss,
     1 AS is_home,
-    venue
+    Venue AS venue
   FROM `data-feeder-lcd.curated.nrl_fixtures_1990_2025`
-  WHERE home_score IS NOT NULL AND away_score IS NOT NULL
+  WHERE HomeScore IS NOT NULL AND AwayScore IS NOT NULL
 
   UNION ALL
 
   SELECT
-    EXTRACT(YEAR FROM PARSE_DATE('%Y-%m-%d', date)) AS year,
-    round,
-    away_team AS team,
-    away_score AS points_for,
-    home_score AS points_against,
-    away_score - home_score AS margin,
-    CASE WHEN away_score > home_score THEN 1 ELSE 0 END AS win,
-    CASE WHEN away_score = home_score THEN 1 ELSE 0 END AS draw,
-    CASE WHEN away_score < home_score THEN 1 ELSE 0 END AS loss,
+    Season AS year,
+    Round AS round,
+    AwayTeam AS team,
+    AwayScore AS points_for,
+    HomeScore AS points_against,
+    AwayScore - HomeScore AS margin,
+    CASE WHEN AwayScore > HomeScore THEN 1 ELSE 0 END AS win,
+    CASE WHEN AwayScore = HomeScore THEN 1 ELSE 0 END AS draw,
+    CASE WHEN AwayScore < HomeScore THEN 1 ELSE 0 END AS loss,
     0 AS is_home,
-    venue
+    Venue AS venue
   FROM `data-feeder-lcd.curated.nrl_fixtures_1990_2025`
-  WHERE home_score IS NOT NULL AND away_score IS NOT NULL
+  WHERE HomeScore IS NOT NULL AND AwayScore IS NOT NULL
 )
 SELECT
   team,
