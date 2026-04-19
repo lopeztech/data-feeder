@@ -40,9 +40,19 @@ def nrl_coaching_analyzer(
     ).to_dataframe()
     print(f"Loaded {len(df)} team-season rows")
 
-    # Load raw fixtures for rivalry matrix
+    # Load raw fixtures for rivalry matrix. Alias the PascalCase schema columns
+    # to the lowercase names the downstream rivalry code expects.
     fixtures = client.query(
-        f"SELECT * FROM `{project_id}.{bq_dataset}.nrl_fixtures_1990_2025`"
+        f"""
+        SELECT
+          HomeTeam  AS home_team,
+          AwayTeam  AS away_team,
+          HomeScore AS home_score,
+          AwayScore AS away_score,
+          Season    AS season,
+          DATE(KickOffTime) AS match_date
+        FROM `{project_id}.{bq_dataset}.nrl_fixtures_1990_2025`
+        """
     ).to_dataframe()
     print(f"Loaded {len(fixtures)} fixture rows")
 
